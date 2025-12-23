@@ -116,10 +116,24 @@ func (r *DockerRuntime) GetLogs(ctx context.Context, id string) (string, error) 
 }
 
 func (r *DockerRuntime) Attach(ctx context.Context, id string) error {
+	// Check if the container exists and get its labels
+	agents, err := r.List(ctx, nil)
+	var agent *AgentInfo
+	if err == nil {
+		for _, a := range agents {
+			if a.ID == id || a.Name == id {
+				agent = &a
+				break
+			}
+		}
+	}
+
+	if agent == nil {
+		return fmt.Errorf("agent '%s' not found", id)
+	}
+
 	// Check if the container is using tmux
-	inspectCmd := exec.CommandContext(ctx, r.Command, "inspect", "--format", "{{index .Config.Labels \"scion.tmux\"}}", id)
-	out, _ := inspectCmd.Output()
-	useTmux := strings.TrimSpace(string(out)) == "true"
+	useTmux := agent.Labels["scion.tmux"] == "true"
 
 	if useTmux {
 		return runInteractiveCommand(r.Command, "exec", "-it", id, "tmux", "attach", "-t", "scion")

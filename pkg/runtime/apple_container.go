@@ -105,18 +105,24 @@ func (r *AppleContainerRuntime) GetLogs(ctx context.Context, id string) (string,
 
 func (r *AppleContainerRuntime) Attach(ctx context.Context, id string) error {
 	useTmux := false
+	var agent *AgentInfo
 
 	// Try to find labels from list first
 	agents, err := r.List(ctx, nil)
 	if err == nil {
 		for _, a := range agents {
 			if a.ID == id || a.Name == id {
+				agent = &a
 				if a.Labels["scion.tmux"] == "true" {
 					useTmux = true
 				}
 				break
 			}
 		}
+	}
+
+	if agent == nil {
+		return fmt.Errorf("agent '%s' not found", id)
 	}
 
 	if !useTmux {
@@ -128,7 +134,7 @@ func (r *AppleContainerRuntime) Attach(ctx context.Context, id string) error {
 	}
 
 	if !useTmux {
-		return fmt.Errorf("apple 'container' runtime requires tmux to attach to an interactive session. Please ensure the agent was started with tmux support")
+		return fmt.Errorf("agent '%s' (grove: %s) does not appear to have tmux support enabled, which is required for interactive attach with the 'container' runtime", id, agent.Grove)
 	}
 
 	args := []string{"exec", "-it", id, "tmux", "attach", "-t", "scion"}

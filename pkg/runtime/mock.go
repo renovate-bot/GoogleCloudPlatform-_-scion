@@ -58,6 +58,19 @@ func (m *MockRuntime) GetLogs(ctx context.Context, id string) (string, error) {
 }
 
 func (m *MockRuntime) Attach(ctx context.Context, id string) error {
+	if _, ok := m.Agents[id]; !ok {
+		// Also check by name
+		found := false
+		for _, a := range m.Agents {
+			if a.Name == id {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("agent '%s' not found", id)
+		}
+	}
 	fmt.Printf("Mock: Attaching to %s\n", id)
 	return nil
 }
