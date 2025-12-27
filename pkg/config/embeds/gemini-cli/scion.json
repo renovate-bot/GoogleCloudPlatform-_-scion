@@ -1,0 +1,7 @@
+{
+  "template": "default",
+  "unix_username": "node",
+  "image": "gemini-cli-sandbox",
+  "use_tmux": true,
+  "model": "flash"
+}

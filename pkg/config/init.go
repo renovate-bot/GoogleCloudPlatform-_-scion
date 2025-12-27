@@ -1,36 +1,28 @@
 package config
 
 import (
-	_ "embed"
+	"embed"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
-//go:embed embeds/scion_hook.py
-var DefaultScionHookPy string
+//go:embed embeds/*
+var embedsFS embed.FS
 
-//go:embed embeds/settings.json
-var DefaultSettingsJSON string
+func SeedTemplateDir(templateDir string, templateName string, harnessProvider string, force bool) error {
+	configDirName := ".gemini"
+	embedDir := "gemini-cli"
+	if harnessProvider == "claude-code" {
+		configDirName = ".claude"
+		embedDir = "claude-code"
+	}
 
-//go:embed embeds/system_prompt.md
-var DefaultSystemPrompt string
-
-//go:embed embeds/scion.json
-var DefaultScionJSON string
-
-//go:embed embeds/gemini.md
-var DefaultGeminiMD string
-
-//go:embed embeds/bashrc
-var DefaultBashrc string
-
-func SeedTemplateDir(templateDir string, templateName string, force bool) error {
 	// Create directories
 	dirs := []string{
 		templateDir,
-		filepath.Join(templateDir, ".gemini"),
+		filepath.Join(templateDir, configDirName),
 		filepath.Join(templateDir, ".config", "gcloud"),
 	}
 
@@ -40,9 +32,32 @@ func SeedTemplateDir(templateDir string, templateName string, force bool) error 
 		}
 	}
 
-	scionJSON := DefaultScionJSON
+	// Helper to read embedded file
+	readEmbed := func(name string) string {
+		data, err := embedsFS.ReadFile(filepath.Join("embeds", embedDir, name))
+		if err != nil {
+			// Fallback to gemini-cli if not found in provider dir
+			data, err = embedsFS.ReadFile(filepath.Join("embeds", "gemini-cli", name))
+			if err != nil {
+				return ""
+			}
+		}
+		return string(data)
+	}
+
+	scionJSON := readEmbed("scion.json")
 	if templateName != "" && templateName != "default" {
 		scionJSON = strings.Replace(scionJSON, `"template": "default"`, fmt.Sprintf(`"template": %q`, templateName), 1)
+	}
+	if harnessProvider != "" {
+		// Insert harness_provider before unix_username
+		providerLine := fmt.Sprintf("  \"harness_provider\": %q,\n", harnessProvider)
+		scionJSON = strings.Replace(scionJSON, "\"unix_username\"", providerLine+"  \"unix_username\"", 1)
+	}
+
+	mdFile := "gemini.md"
+	if harnessProvider == "claude-code" {
+		mdFile = "claude.md"
 	}
 
 	// Seed template files
@@ -51,11 +66,11 @@ func SeedTemplateDir(templateDir string, templateName string, force bool) error 
 		content string
 	}{
 		{filepath.Join(templateDir, "scion.json"), scionJSON},
-		{filepath.Join(templateDir, "scion_hook.py"), DefaultScionHookPy},
-		{filepath.Join(templateDir, ".gemini", "settings.json"), DefaultSettingsJSON},
-		{filepath.Join(templateDir, ".gemini", "system_prompt.md"), DefaultSystemPrompt},
-		{filepath.Join(templateDir, ".gemini", "gemini.md"), DefaultGeminiMD},
-		{filepath.Join(templateDir, ".bashrc"), DefaultBashrc},
+		{filepath.Join(templateDir, "scion_hook.py"), readEmbed("scion_hook.py")},
+		{filepath.Join(templateDir, configDirName, "settings.json"), readEmbed("settings.json")},
+		{filepath.Join(templateDir, configDirName, "system_prompt.md"), readEmbed("system_prompt.md")},
+		{filepath.Join(templateDir, configDirName, mdFile), readEmbed(mdFile)},
+		{filepath.Join(templateDir, ".bashrc"), readEmbed("bashrc")},
 	}
 
 	for _, f := range files {
@@ -91,14 +106,17 @@ func InitProject(targetDir string) error {
 	}
 
 	templatesDir := filepath.Join(projectDir, "templates")
-	defaultTemplateDir := filepath.Join(templatesDir, "default")
 	agentsDir := filepath.Join(projectDir, "agents")
 
 	if err := os.MkdirAll(agentsDir, 0755); err != nil {
 		return fmt.Errorf("failed to create agents directory: %w", err)
 	}
 
-	return SeedTemplateDir(defaultTemplateDir, "default", false)
+	if err := SeedTemplateDir(filepath.Join(templatesDir, "gemini-default"), "gemini-default", "gemini-cli", false); err != nil {
+		return fmt.Errorf("failed to seed gemini-default template: %w", err)
+	}
+
+	return SeedTemplateDir(filepath.Join(templatesDir, "claude-default"), "claude-default", "claude-code", false)
 }
 
 func InitGlobal() error {
@@ -108,12 +126,15 @@ func InitGlobal() error {
 	}
 
 	templatesDir := filepath.Join(globalDir, "templates")
-	defaultTemplateDir := filepath.Join(templatesDir, "default")
 	agentsDir := filepath.Join(globalDir, "agents")
 
 	if err := os.MkdirAll(agentsDir, 0755); err != nil {
 		return fmt.Errorf("failed to create global agents directory: %w", err)
 	}
 
-	return SeedTemplateDir(defaultTemplateDir, "default", false)
+	if err := SeedTemplateDir(filepath.Join(templatesDir, "gemini-default"), "gemini-default", "gemini-cli", false); err != nil {
+		return fmt.Errorf("failed to seed global gemini-default template: %w", err)
+	}
+
+	return SeedTemplateDir(filepath.Join(templatesDir, "claude-default"), "claude-default", "claude-code", false)
 }

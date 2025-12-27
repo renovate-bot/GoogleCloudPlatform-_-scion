@@ -9,7 +9,9 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/ptone/scion-agent/pkg/api"
 	"github.com/ptone/scion-agent/pkg/config"
+	"github.com/ptone/scion-agent/pkg/harness"
 	"github.com/ptone/scion-agent/pkg/runtime"
 	"github.com/ptone/scion-agent/pkg/util"
 )
@@ -48,7 +50,7 @@ func DeleteAgentFiles(agentName string) error {
 	return nil
 }
 
-func ProvisionAgent(agentName string, templateName string, agentImage string, grovePath string, optionalStatus string) (string, string, *config.ScionConfig, error) {
+func ProvisionAgent(agentName string, templateName string, agentImage string, grovePath string, optionalStatus string) (string, string, *api.ScionConfig, error) {
 	// 1. Prepare agent directories
 	projectDir, err := config.GetResolvedProjectDir(grovePath)
 	if err != nil {
@@ -108,7 +110,7 @@ func ProvisionAgent(agentName string, templateName string, agentImage string, gr
 		return "", "", nil, fmt.Errorf("failed to load template: %w", err)
 	}
 
-	finalScionCfg := &config.ScionConfig{}
+	finalScionCfg := &api.ScionConfig{}
 
 	for _, tpl := range chain {
 		fmt.Printf("Applying template: %s\n", tpl.Name)
@@ -125,10 +127,10 @@ func ProvisionAgent(agentName string, templateName string, agentImage string, gr
 
 	// Update agent-specific scion.json
 	if finalScionCfg == nil {
-		finalScionCfg = &config.ScionConfig{}
+		finalScionCfg = &api.ScionConfig{}
 	}
 	finalScionCfg.Template = templateName
-	finalScionCfg.Agent = &config.AgentConfig{
+	finalScionCfg.Agent = &api.AgentConfig{
 		Grove: groveName,
 		Name:  agentName,
 	}
@@ -237,13 +239,16 @@ func RunAgent(cmd *cobra.Command, args []string, resume bool) error {
 		fmt.Printf("Debug: resolved container image='%s'\n", resolvedImage)
 	}
 
+	harnessProvider := ""
+	if finalScionCfg != nil {
+		harnessProvider = finalScionCfg.HarnessProvider
+	}
+	h := harness.New(harnessProvider)
+
 	// 3. Propagate credentials
-	var auth config.AuthConfig
+	var auth api.AuthConfig
 	if !noAuth {
-		// Load agent settings from the home directory
-		agentSettingsPath := filepath.Join(agentHome, ".gemini", "settings.json")
-		agentSettings, _ := config.LoadGeminiSettings(agentSettingsPath)
-		auth = config.DiscoverAuth(agentSettings)
+		auth = h.DiscoverAuth(agentHome)
 	}
 
 	// 4. Launch container
@@ -296,11 +301,11 @@ func RunAgent(cmd *cobra.Command, args []string, resume bool) error {
 		}
 	}
 
-	agentEnv := []string{
-		fmt.Sprintf("GEMINI_AGENT_NAME=%s", agentName),
-	}
-	if !strings.HasPrefix(strings.TrimSpace(config.DefaultSystemPrompt), "# Placeholder") {
-		agentEnv = append(agentEnv, fmt.Sprintf("GEMINI_SYSTEM_MD=/home/%s/.gemini/system_prompt.md", unixUsername))
+	agentEnv := []string{}
+	if finalScionCfg != nil && finalScionCfg.Env != nil {
+		for k, v := range finalScionCfg.Env {
+			agentEnv = append(agentEnv, fmt.Sprintf("%s=%s", k, v))
+		}
 	}
 
 	template := ""
@@ -322,11 +327,18 @@ func RunAgent(cmd *cobra.Command, args []string, resume bool) error {
 		Workspace:    agentWorkspace,
 		RepoRoot:     repoRoot,
 		Auth:         auth,
+		Harness:      h,
 		UseTmux:      useTmux,
 		Model:        resolvedModel,
 		Task:         task,
 		Env:          agentEnv,
-		Resume:       resume,
+		Volumes: func() []api.VolumeMount {
+			if finalScionCfg != nil {
+				return finalScionCfg.Volumes
+			}
+			return nil
+		}(),
+		Resume: resume,
 		Labels: map[string]string{
 			"scion.agent":      "true",
 			"scion.name":       agentName,
@@ -379,13 +391,13 @@ func UpdateAgentStatus(agentName string, status string) error {
 		return err
 	}
 
-	var cfg config.ScionConfig
+	var cfg api.ScionConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return err
 	}
 
 	if cfg.Agent == nil {
-		cfg.Agent = &config.AgentConfig{}
+		cfg.Agent = &api.AgentConfig{}
 	}
 	cfg.Agent.Status = status
 
@@ -397,7 +409,7 @@ func UpdateAgentStatus(agentName string, status string) error {
 	return os.WriteFile(scionJsonPath, newData, 0644)
 }
 
-func GetAgent(agentName string, templateName string, agentImage string, grovePath string, optionalStatus string) (string, string, string, *config.ScionConfig, error) {
+func GetAgent(agentName string, templateName string, agentImage string, grovePath string, optionalStatus string) (string, string, string, *api.ScionConfig, error) {
 	projectDir, err := config.GetResolvedProjectDir(grovePath)
 	if err != nil {
 		return "", "", "", nil, err
@@ -413,150 +425,52 @@ func GetAgent(agentName string, templateName string, agentImage string, grovePat
 		return agentDir, home, ws, cfg, err
 	}
 
-		fmt.Printf("Using existing agent '%s'...\n", agentName)
+	fmt.Printf("Using existing agent '%s'...\n", agentName)
 
-		// Load the agent's scion.json
+	// Load the agent's scion.json
+	tpl := &config.Template{Path: agentHome}
+	agentCfg, err := tpl.LoadConfig()
+	if err != nil {
+		return agentDir, agentHome, agentWorkspace, nil, fmt.Errorf("failed to load agent config: %w", err)
+	}
 
-		tpl := &config.Template{Path: agentHome}
+	// Re-construct the full config by merging the template chain
+	// The agent's scion.json acts as the final override
 
-		agentCfg, err := tpl.LoadConfig()
+	// Determine the template name from the agent's config or default
+	effectiveTemplate := "gemini-default"
+	if agentCfg.Template != "" {
+		effectiveTemplate = agentCfg.Template
+	}
 
-		if err != nil {
+	chain, err := config.GetTemplateChain(effectiveTemplate)
+	if err != nil {
+		// If we can't find the template, warn but proceed with just the agent config
+		fmt.Printf("Warning: failed to load template chain for '%s': %v. Using agent config as is.\n", effectiveTemplate, err)
+		return agentDir, agentHome, agentWorkspace, agentCfg, nil
+	}
 
-			return agentDir, agentHome, agentWorkspace, nil, fmt.Errorf("failed to load agent config: %w", err)
-
-		}
-
-	
-
-		// Re-construct the full config by merging the template chain
-
-		// The agent's scion.json acts as the final override
-
-		
-
-		// Determine the template name from the agent's config or default
-
-		effectiveTemplate := "default"
-
-		if agentCfg.Template != "" {
-
-			effectiveTemplate = agentCfg.Template
-
-		}
-
-	
-
-		chain, err := config.GetTemplateChain(effectiveTemplate)
-
-		if err != nil {
-
-			// If we can't find the template, warn but proceed with just the agent config
-
-			fmt.Printf("Warning: failed to load template chain for '%s': %v. Using agent config as is.\n", effectiveTemplate, err)
-
-			return agentDir, agentHome, agentWorkspace, agentCfg, nil
-
-		}
-
-	
-
-			mergedCfg := &config.ScionConfig{}
-
-	
-
-			for _, tpl := range chain {
-
-	
-
-				tplCfg, err := tpl.LoadConfig()
-
-	
-
-				if err == nil {
-
-	
-
-					if os.Getenv("SCION_DEBUG") != "" {
-
-	
-
-						fmt.Printf("Debug: merging template '%s', image='%s'\n", tpl.Name, tplCfg.Image)
-
-	
-
-					}
-
-	
-
-					mergedCfg = config.MergeScionConfig(mergedCfg, tplCfg)
-
-	
-
-				}
-
-	
-
-			}
-
-	
-
-		
-
-	
-
+	mergedCfg := &api.ScionConfig{}
+	for _, tpl := range chain {
+		tplCfg, err := tpl.LoadConfig()
+		if err == nil {
 			if os.Getenv("SCION_DEBUG") != "" {
-
-	
-
-				fmt.Printf("Debug: agent config image='%s'\n", agentCfg.Image)
-
-	
-
+				fmt.Printf("Debug: merging template '%s', image='%s'\n", tpl.Name, tplCfg.Image)
 			}
-
-	
-
-		
-
-	
-
-			// Finally merge the agent's specific config on top
-
-	
-
-			finalCfg := config.MergeScionConfig(mergedCfg, agentCfg)
-
-	
-
-		
-
-	
-
-			if os.Getenv("SCION_DEBUG") != "" {
-
-	
-
-				fmt.Printf("Debug: final merged config image='%s'\n", finalCfg.Image)
-
-	
-
-			}
-
-	
-
-		
-
-	
-
-			return agentDir, agentHome, agentWorkspace, finalCfg, nil
-
-	
-
+			mergedCfg = config.MergeScionConfig(mergedCfg, tplCfg)
 		}
+	}
 
-	
+	if os.Getenv("SCION_DEBUG") != "" {
+		fmt.Printf("Debug: agent config image='%s'\n", agentCfg.Image)
+	}
 
-		
+	// Finally merge the agent's specific config on top
+	finalCfg := config.MergeScionConfig(mergedCfg, agentCfg)
 
-	
+	if os.Getenv("SCION_DEBUG") != "" {
+		fmt.Printf("Debug: final merged config image='%s'\n", finalCfg.Image)
+	}
+
+	return agentDir, agentHome, agentWorkspace, finalCfg, nil
+}

@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ptone/scion-agent/pkg/util"
+	"github.com/ptone/scion-agent/pkg/api"
 )
 
 // buildCommonRunArgs constructs the common arguments for 'run' command across different runtimes.
@@ -23,6 +23,13 @@ func buildCommonRunArgs(config RunConfig) ([]string, error) {
 		if value != "" {
 			addArg("-e", fmt.Sprintf("%s=%s", name, value))
 		}
+	}
+	addVolume := func(v api.VolumeMount) {
+		val := fmt.Sprintf("%s:%s", v.Source, v.Target)
+		if v.ReadOnly {
+			val += ":ro"
+		}
+		addArg("-v", val)
 	}
 
 	addArg("--name", config.Name)
@@ -49,61 +56,26 @@ func buildCommonRunArgs(config RunConfig) ([]string, error) {
 		addArg("--workdir", "/workspace")
 	}
 
-	// Propagate Auth
-	propagateFile := func(src, containerPath, authType string) error {
-		if src == "" {
-			return nil
-		}
+	// Add generic volumes from config
+	for _, v := range config.Volumes {
+		addVolume(v)
+	}
+
+	// Use Harness for file propagation and env
+	if config.Harness != nil {
 		if config.HomeDir != "" {
-			// containerPath is absolute, e.g. /home/scion/.gemini/oauth_creds.json
-			// relative path from home: .gemini/oauth_creds.json
-			rel, err := filepath.Rel(fmt.Sprintf("/home/%s", config.UnixUsername), containerPath)
-			if err != nil {
-				return err
-			}
-			dst := filepath.Join(config.HomeDir, rel)
-			if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
-				return err
-			}
-			if err := util.CopyFile(src, dst); err != nil {
-				return fmt.Errorf("failed to copy %s: %w", authType, err)
+			if err := config.Harness.PropagateFiles(config.HomeDir, config.UnixUsername, config.Auth); err != nil {
+				return nil, err
 			}
 		} else {
-			addArg("-v", fmt.Sprintf("%s:%s:ro", src, containerPath))
+			for _, v := range config.Harness.GetVolumes(config.UnixUsername, config.Auth) {
+				addVolume(v)
+			}
 		}
-		if authType != "" {
-			addEnv("GEMINI_DEFAULT_AUTH_TYPE", authType)
+		for k, v := range config.Harness.GetEnv(config.Name, config.UnixUsername, config.Model, config.Auth) {
+			addEnv(k, v)
 		}
-		return nil
 	}
-
-	addEnv("GEMINI_API_KEY", config.Auth.GeminiAPIKey)
-	addEnv("GOOGLE_API_KEY", config.Auth.GoogleAPIKey)
-	if config.Auth.GeminiAPIKey != "" || config.Auth.GoogleAPIKey != "" {
-		addEnv("GEMINI_DEFAULT_AUTH_TYPE", "gemini-api-key")
-	}
-
-	addEnv("VERTEX_API_KEY", config.Auth.VertexAPIKey)
-	if config.Auth.VertexAPIKey != "" {
-		addEnv("GEMINI_DEFAULT_AUTH_TYPE", "vertex-ai")
-	}
-
-	oauthPath := fmt.Sprintf("/home/%s/.gemini/oauth_creds.json", config.UnixUsername)
-	if err := propagateFile(config.Auth.OAuthCreds, oauthPath, "oauth-personal"); err != nil {
-		return nil, err
-	}
-
-	addEnv("GOOGLE_CLOUD_PROJECT", config.Auth.GoogleCloudProject)
-
-	adcPath := fmt.Sprintf("/home/%s/.config/gcp/application_default_credentials.json", config.UnixUsername)
-	if config.Auth.GoogleAppCredentials != "" {
-		if err := propagateFile(config.Auth.GoogleAppCredentials, adcPath, "compute-default-credentials"); err != nil {
-			return nil, err
-		}
-		addEnv("GOOGLE_APPLICATION_CREDENTIALS", adcPath)
-	}
-
-	addEnv("GEMINI_MODEL", config.Model)
 
 	// Mount gcloud config if it exists
 	home, _ := os.UserHomeDir()
@@ -128,15 +100,17 @@ func buildCommonRunArgs(config RunConfig) ([]string, error) {
 
 	args = append(args, config.Image)
 
-	geminiArgs := []string{"gemini", "--yolo"}
-	if config.Resume {
-		geminiArgs = append(geminiArgs, "--resume")
+	// Get command from harness
+	var harnessArgs []string
+	if config.Harness != nil {
+		harnessArgs = config.Harness.GetCommand(config.Task, config.Resume)
+	} else {
+		return nil, fmt.Errorf("no harness provided")
 	}
-	geminiArgs = append(geminiArgs, "--prompt-interactive", config.Task)
 
 	if config.UseTmux {
 		var quotedArgs []string
-		for _, a := range geminiArgs {
+		for _, a := range harnessArgs {
 			// Use %q to quote arguments that might have spaces or special characters
 			if strings.ContainsAny(a, " \t\n\"'\\$") {
 				quotedArgs = append(quotedArgs, fmt.Sprintf("%q", a))
@@ -144,10 +118,10 @@ func buildCommonRunArgs(config RunConfig) ([]string, error) {
 				quotedArgs = append(quotedArgs, a)
 			}
 		}
-		geminiCmd := strings.Join(quotedArgs, " ")
-		args = append(args, "tmux", "new-session", "-s", "scion", geminiCmd)
+		cmdLine := strings.Join(quotedArgs, " ")
+		args = append(args, "tmux", "new-session", "-s", "scion", cmdLine)
 	} else {
-		args = append(args, geminiArgs...)
+		args = append(args, harnessArgs...)
 	}
 
 	return args, nil

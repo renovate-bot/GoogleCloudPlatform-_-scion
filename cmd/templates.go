@@ -69,7 +69,8 @@ var templatesCreateCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 		global, _ := cmd.Flags().GetBool("global")
-		err := config.CreateTemplate(name, global)
+		provider, _ := cmd.Flags().GetString("provider")
+		err := config.CreateTemplate(name, provider, global)
 		if err != nil {
 			return err
 		}
@@ -97,14 +98,14 @@ var templatesDeleteCmd = &cobra.Command{
 
 var templatesUpdateDefaultCmd = &cobra.Command{
 	Use:   "update-default",
-	Short: "Update the default template with the latest from the binary",
+	Short: "Update default templates with the latest from the binary",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		global, _ := cmd.Flags().GetBool("global")
-		err := config.UpdateDefaultTemplate(global)
+		err := config.UpdateDefaultTemplates(global)
 		if err != nil {
 			return err
 		}
-		fmt.Println("Default template updated successfully.")
+		fmt.Println("Default templates updated successfully.")
 		return nil
 	},
 }
@@ -116,4 +117,6 @@ func init() {
 	templatesCmd.AddCommand(templatesCreateCmd)
 	templatesCmd.AddCommand(templatesDeleteCmd)
 	templatesCmd.AddCommand(templatesUpdateDefaultCmd)
+
+	templatesCreateCmd.Flags().StringP("provider", "p", "", "Harness provider (e.g. gemini-cli, claude-code)")
 }

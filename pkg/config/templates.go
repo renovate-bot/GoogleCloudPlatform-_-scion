@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/ptone/scion-agent/pkg/api"
 )
 
 type Template struct {
@@ -12,47 +14,17 @@ type Template struct {
 	Path string
 }
 
-type AgentConfig struct {
-	Grove  string `json:"grove"`
-	Name   string `json:"name"`
-	Status string `json:"status,omitempty"`
-}
-
-type ScionConfig struct {
-	Template     string       `json:"template"`
-	UnixUsername string       `json:"unix_username"`
-	Image        string       `json:"image"`
-	Detached     *bool        `json:"detached"`
-	UseTmux      *bool        `json:"use_tmux"`
-	Model        string       `json:"model"`
-	Agent        *AgentConfig `json:"agent,omitempty"`
-}
-
-func (c *ScionConfig) IsDetached() bool {
-	if c.Detached == nil {
-		return true
-	}
-	return *c.Detached
-}
-
-func (c *ScionConfig) IsUseTmux() bool {
-	if c.UseTmux == nil {
-		return false
-	}
-	return *c.UseTmux
-}
-
-func (t *Template) LoadConfig() (*ScionConfig, error) {
+func (t *Template) LoadConfig() (*api.ScionConfig, error) {
 	path := filepath.Join(t.Path, "scion.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return &ScionConfig{}, nil
+			return &api.ScionConfig{}, nil
 		}
 		return nil, err
 	}
 
-	var cfg ScionConfig
+	var cfg api.ScionConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}
@@ -85,14 +57,6 @@ func FindTemplate(name string) (*Template, error) {
 func GetTemplateChain(name string) ([]*Template, error) {
 	var chain []*Template
 
-	// Always start with default if it's not the requested template
-	if name != "default" {
-		def, err := FindTemplate("default")
-		if err == nil {
-			chain = append(chain, def)
-		}
-	}
-
 	tpl, err := FindTemplate(name)
 	if err != nil {
 		return nil, err
@@ -102,7 +66,7 @@ func GetTemplateChain(name string) ([]*Template, error) {
 	return chain, nil
 }
 
-func CreateTemplate(name string, global bool) error {
+func CreateTemplate(name string, harnessProvider string, global bool) error {
 	var templatesDir string
 	var err error
 
@@ -121,10 +85,10 @@ func CreateTemplate(name string, global bool) error {
 		return fmt.Errorf("template %s already exists at %s", name, templateDir)
 	}
 
-	return SeedTemplateDir(templateDir, name, false)
+	return SeedTemplateDir(templateDir, name, harnessProvider, false)
 }
 
-func UpdateDefaultTemplate(global bool) error {
+func UpdateDefaultTemplates(global bool) error {
 	var templatesDir string
 	var err error
 
@@ -138,13 +102,15 @@ func UpdateDefaultTemplate(global bool) error {
 		return err
 	}
 
-	defaultTemplateDir := filepath.Join(templatesDir, "default")
-	return SeedTemplateDir(defaultTemplateDir, "default", true)
+	if err := SeedTemplateDir(filepath.Join(templatesDir, "gemini-default"), "gemini-default", "gemini-cli", true); err != nil {
+		return err
+	}
+	return SeedTemplateDir(filepath.Join(templatesDir, "claude-default"), "claude-default", "claude-code", true)
 }
 
 func DeleteTemplate(name string, global bool) error {
-	if name == "default" {
-		return fmt.Errorf("cannot delete the default template")
+	if name == "default" || name == "gemini-default" || name == "claude-default" {
+		return fmt.Errorf("cannot delete protected template: %s", name)
 	}
 
 	var templatesDir string
@@ -209,18 +175,40 @@ func ListTemplates() ([]*Template, error) {
 	return list, nil
 }
 
-func MergeScionConfig(base, override *ScionConfig) *ScionConfig {
+func MergeScionConfig(base, override *api.ScionConfig) *api.ScionConfig {
 	if base == nil {
-		base = &ScionConfig{}
+		base = &api.ScionConfig{}
 	}
 	if override == nil {
 		return base
 	}
 
-	result := *base // Shallow copy
+	result := *base // Shallow copy initially
 
 	if override.Template != "" {
 		result.Template = override.Template
+	}
+	if override.HarnessProvider != "" {
+		result.HarnessProvider = override.HarnessProvider
+	}
+	if override.ConfigDir != "" {
+		result.ConfigDir = override.ConfigDir
+	}
+	if override.Env != nil {
+		newEnv := make(map[string]string, len(base.Env)+len(override.Env))
+		for k, v := range base.Env {
+			newEnv[k] = v
+		}
+		for k, v := range override.Env {
+			newEnv[k] = v
+		}
+		result.Env = newEnv
+	}
+	if override.Volumes != nil {
+		newVolumes := make([]api.VolumeMount, 0, len(base.Volumes)+len(override.Volumes))
+		newVolumes = append(newVolumes, base.Volumes...)
+		newVolumes = append(newVolumes, override.Volumes...)
+		result.Volumes = newVolumes
 	}
 	if override.UnixUsername != "" {
 		result.UnixUsername = override.UnixUsername
@@ -239,18 +227,20 @@ func MergeScionConfig(base, override *ScionConfig) *ScionConfig {
 	}
 	if override.Agent != nil {
 		if result.Agent == nil {
-			result.Agent = override.Agent
+			agentCopy := *override.Agent
+			result.Agent = &agentCopy
 		} else {
-			// Merge AgentConfig fields
+			agentCopy := *result.Agent
 			if override.Agent.Grove != "" {
-				result.Agent.Grove = override.Agent.Grove
+				agentCopy.Grove = override.Agent.Grove
 			}
 			if override.Agent.Name != "" {
-				result.Agent.Name = override.Agent.Name
+				agentCopy.Name = override.Agent.Name
 			}
 			if override.Agent.Status != "" {
-				result.Agent.Status = override.Agent.Status
+				agentCopy.Status = override.Agent.Status
 			}
+			result.Agent = &agentCopy
 		}
 	}
 

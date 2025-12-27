@@ -7,7 +7,7 @@ This document outlines the design for adding a Kubernetes (K8s) runtime to the `
 - Allow `scion run` to execute agents in a Kubernetes cluster.
 - Maintain a developer experience (DX) as close as possible to the local `docker` runtime.
 - Support "Agent Sandbox" technologies for secure execution.
-- Solve the challenges of remote file system access and user identity.
+- Solve the challenges of remote file system access and user identity using the unified Harness Provider abstraction.
 - Support a single 'grove' (project) utilizing a mix of local and remote agents.
 
 ## Architecture
@@ -35,7 +35,7 @@ We will use a "Snapshot" approach for the MVP to align with the "run this task" 
     2.  Wait for Pod to be `Running`.
     3.  `tar` the local directory (respecting `.gitignore`) and stream it to the Pod:
         `tar -cz . | kubectl exec -i <pod> -- tar -xz -C /workspace`
-    4.  Start the agent process.
+    4.  Start the agent process using the command provided by the harness.
 
 #### Data Synchronization (Sync-Back)
 Since the workspace is ephemeral, changes made by the agent must be explicitly retrieved.
@@ -43,14 +43,21 @@ Since the workspace is ephemeral, changes made by the agent must be explicitly r
 *   **On Stop:** When `scion stop <agent-name>` is called, the CLI will prompt (or accept a flag `--sync`) to pull changes before destroying the Pod.
     *   *Mechanism:* `kubectl exec -i <pod> -- tar -cz -C /workspace . | tar -xz -C ./local/path`
 
-### 2. The Identity Problem (Home Directory)
-#### Solution: Hybrid Secret Projection
-*   **Auth:** The CLI will auto-detect critical credentials (e.g., `~/.ssh/id_rsa`, `~/.config/gcloud`) and offer to create ephemeral K8s Secrets to mount them.
-*   **Config:** Agents should be configured via environment variables or explicit config files rather than syncing a full home directory.
+### 2. The Identity Problem (Auth & Config)
+Different agents (Gemini, Claude) require different authentication credentials and configuration files.
+
+#### Solution: Harness-Driven Secret Projection
+The `KubernetesRuntime` will rely on the `harness.Harness` interface to discover and project identity.
+
+*   **Auth Discovery:** The runtime will call `Harness.DiscoverAuth(agentHome)` to identify necessary credentials (e.g., API keys, default credentials).
+*   **Environment:** `Harness.GetEnv` will provide necessary environment variables (including API keys), which will be injected into the Pod definition.
+*   **Volume Projection:** The runtime will iterate over volumes returned by `Harness.GetVolumes` and those defined in `scion.json`.
+    *   **Mechanism:** For **local files** (e.g., `~/.config/gcloud`, `~/.anthropic`), the CLI will create ephemeral **Kubernetes Secrets** containing these files and mount them into the Pod at the target locations.
+    *   *Note:* Care must be taken with large directories. For MVP, we may restrict support to small credential files.
 
 ### 3. Security & Isolation (Agent Sandbox)
 #### Solution: K8s agent sandbox
-The `KubernetesRuntime` will support a https://github.com/kubernetes-sigs/agent-sandbox - This project is developing a Sandbox Custom Resource Definition (CRD) and controller for Kubernetes. A research note on this is availabe in k8s-agent-sandbox.md in the .design folder of this repo.
+The `KubernetesRuntime` will support a https://github.com/kubernetes-sigs/agent-sandbox - This project is developing a Sandbox Custom Resource Definition (CRD) and controller for Kubernetes. A research note on this is available in k8s-agent-sandbox.md in the .design folder of this repo.
 
 ## Local Representation & State
 
@@ -60,9 +67,10 @@ Even though agents run remotely, their "handle" must remain local to maintain a 
 We will retain the `.scion/agents/<agent-name>/` directory for every agent, regardless of runtime.
 
 *   **`.scion/agents/<agent-name>/scion.json`**:
+    *   **`harness_provider`**: `"claude-code"` (or `"gemini-cli"`)
     *   **`runtime`**: `"kubernetes"`
     *   **`kubernetes`**: (Read-only metadata)
-        *   `cluster`: "my-cluster-context" (Snapshot of the context used to create it)
+        *   `cluster`: "my-cluster-context"
         *   `namespace`: "scion-agents"
         *   `podName`: "scion-agent-xyz-123"
         *   `syncedAt`: Timestamp of last sync.
@@ -109,21 +117,35 @@ Once an agent is created, its runtime is **immutable** and stored in its local `
 
 ## Implementation Plan
 
-### Initial work completed in phase one 
-   1. Dependencies: Added k8s.io/api, k8s.io/apimachinery, and k8s.io/client-go to go.mod.
-   2. API Types: Created pkg/k8s/api/v1alpha1/types.go containing the Go struct definitions for Sandbox, SandboxClaim, and SandboxTemplate
-      mirroring the Agent Sandbox specification.
-   3. Client: Implemented pkg/k8s/client.go, a typed client wrapper using client-go/dynamic to interact with the new CRDs. It also exposes the
-      standard Kubernetes clientset and config.
-   4. Runtime: Scaffolding the KubernetesRuntime in pkg/runtime/kubernetes/runtime.go, implementing the Runtime interface with initial logic
-      for Run, Stop, and Delete.
+The implementation will build upon the `Runtime` interface and the new `Harness` abstraction.
 
-### Next steps (for future sessions):
-   1. Implement the WaitForReady logic in Run to block until the Sandbox is provisioned.
-   2. Implement ListSandboxClaims in the client.
-   3. Implement the tar streaming logic to sync the local context to the remote Sandbox pod.
-   4. Implement Exec logic to start the agent process within the Sandbox.
+### 1. Kubernetes Runtime Construction
+Create `pkg/runtime/kubernetes` and implement the `Runtime` interface.
+*   **`Run(ctx, config)`**:
+    *   **Harness Initialization:** Use `config.Harness` to determine provider specifics.
+    *   **PodSpec Generation:**
+        *   **Image**: Use `config.Image`.
+        *   **Command**: Use `config.Harness.GetCommand(config.Task, config.Resume)`.
+        *   **Env**: Merge `config.Harness.GetEnv(...)` with `config.Env`.
+        *   **Volumes**: Iterate through `config.Harness.GetVolumes()` and `config.Volumes`.
+            *   Read local content for file-based volumes.
+            *   Create K8s Secrets/ConfigMaps with content.
+            *   Add Volume and VolumeMounts to PodSpec.
+    *   **Execution**:
+        *   Create Pod via K8s Client.
+        *   Wait for Ready state.
+        *   Execute "Snapshot" sync (tar/untar) to `/workspace`.
+        *   Exec start command (if not using container entrypoint).
+*   **`Stop`/`Delete`**:
+    *   Delete Pod.
+    *   Delete associated Secrets/ConfigMaps (managed via OwnerReferences for auto-cleanup).
 
+### 2. Client & API
+*   Use `client-go` for standard operations.
+*   Implement `KubernetesRuntime` struct satisfying `pkg/runtime/Runtime`.
+
+### 3. Verification
+*   Verify with both `gemini-cli` and `claude-code` harnesses to ensure the abstraction holds for the remote K8s environment.
 
 ## Future Work
 *   **Sidecar Syncing:** Integrate with tools like Mutagen for real-time bidirectional syncing.

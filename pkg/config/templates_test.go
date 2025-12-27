@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/ptone/scion-agent/pkg/api"
 )
 
 func TestCreateTemplate(t *testing.T) {
@@ -34,7 +36,7 @@ func TestCreateTemplate(t *testing.T) {
 
 	// Test creating a project template
 	tplName := "test-tpl"
-	err = CreateTemplate(tplName, false)
+	err = CreateTemplate(tplName, "gemini-cli", false)
 	if err != nil {
 		t.Fatalf("failed to create project template: %v", err)
 	}
@@ -58,7 +60,7 @@ func TestCreateTemplate(t *testing.T) {
 
 	// Test creating a global template
 	globalTplName := "global-tpl"
-	err = CreateTemplate(globalTplName, true)
+	err = CreateTemplate(globalTplName, "gemini-cli", true)
 	if err != nil {
 		t.Fatalf("failed to create global template: %v", err)
 	}
@@ -69,7 +71,7 @@ func TestCreateTemplate(t *testing.T) {
 	}
 
 	// Test duplicate template creation fails
-	err = CreateTemplate(tplName, false)
+	err = CreateTemplate(tplName, "gemini-cli", false)
 	if err == nil {
 		t.Error("expected error when creating duplicate template, got nil")
 	}
@@ -103,11 +105,11 @@ func TestDeleteTemplate(t *testing.T) {
 
 	// Create templates to delete
 	tplName := "test-tpl-delete"
-	if err := CreateTemplate(tplName, false); err != nil {
+	if err := CreateTemplate(tplName, "gemini-cli", false); err != nil {
 		t.Fatal(err)
 	}
 	globalTplName := "global-tpl-delete"
-	if err := CreateTemplate(globalTplName, true); err != nil {
+	if err := CreateTemplate(globalTplName, "gemini-cli", true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -129,9 +131,9 @@ func TestDeleteTemplate(t *testing.T) {
 		t.Errorf("expected global template directory %s to be gone", globalExpectedPath)
 	}
 
-	// Test deleting "default" fails
-	if err := DeleteTemplate("default", false); err == nil {
-		t.Error("expected error when deleting default template, got nil")
+	// Test deleting "gemini-default" fails
+	if err := DeleteTemplate("gemini-default", false); err == nil {
+		t.Error("expected error when deleting gemini-default template, got nil")
 	}
 
 	// Test deleting non-existent template fails
@@ -140,7 +142,7 @@ func TestDeleteTemplate(t *testing.T) {
 	}
 }
 
-func TestUpdateDefaultTemplate(t *testing.T) {
+func TestUpdateDefaultTemplates(t *testing.T) {
 	// Setup a temporary directory for the test
 	tmpDir, err := os.MkdirTemp("", "scion-test-update-*")
 	if err != nil {
@@ -166,26 +168,26 @@ func TestUpdateDefaultTemplate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Initialize project (creates default template)
+	// Initialize project (creates default templates)
 	if err := InitProject(""); err != nil {
 		t.Fatal(err)
 	}
 
-	defaultTemplateScionJSON := filepath.Join(projectDir, "templates", "default", "scion.json")
+	geminiDefaultScionJSON := filepath.Join(projectDir, "templates", "gemini-default", "scion.json")
 	
 	// Corrupt the default template file
 	corruptContent := "CORRUPT"
-	if err := os.WriteFile(defaultTemplateScionJSON, []byte(corruptContent), 0644); err != nil {
+	if err := os.WriteFile(geminiDefaultScionJSON, []byte(corruptContent), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	// Update default template
-	if err := UpdateDefaultTemplate(false); err != nil {
-		t.Fatalf("failed to update default template: %v", err)
+	// Update default templates
+	if err := UpdateDefaultTemplates(false); err != nil {
+		t.Fatalf("failed to update default templates: %v", err)
 	}
 
 	// Verify it was restored
-	data, err := os.ReadFile(defaultTemplateScionJSON)
+	data, err := os.ReadFile(geminiDefaultScionJSON)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,20 +202,20 @@ func TestMergeScionConfig(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		base     *ScionConfig
-		override *ScionConfig
+		base     *api.ScionConfig
+		override *api.ScionConfig
 		wantTmux bool
 	}{
 		{
 			name:     "override false to true",
-			base:     &ScionConfig{UseTmux: &falseVal},
-			override: &ScionConfig{UseTmux: &trueVal},
+			base:     &api.ScionConfig{UseTmux: &falseVal},
+			override: &api.ScionConfig{UseTmux: &trueVal},
 			wantTmux: true,
 		},
 		{
 			name:     "override true to false",
-			base:     &ScionConfig{UseTmux: &trueVal},
-			override: &ScionConfig{UseTmux: &falseVal},
+			base:     &api.ScionConfig{UseTmux: &trueVal},
+			override: &api.ScionConfig{UseTmux: &falseVal},
 			wantTmux: false,
 		},
 	}
@@ -228,8 +230,8 @@ func TestMergeScionConfig(t *testing.T) {
 	}
 
 	t.Run("detached merge", func(t *testing.T) {
-		base := &ScionConfig{Detached: &trueVal}
-		override := &ScionConfig{Detached: &falseVal}
+		base := &api.ScionConfig{Detached: &trueVal}
+		override := &api.ScionConfig{Detached: &falseVal}
 		got := MergeScionConfig(base, override)
 		if got.Detached == nil || *got.Detached != false {
 			t.Errorf("expected detached to be false, got %v", got.Detached)

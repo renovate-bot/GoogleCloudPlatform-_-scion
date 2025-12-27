@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 )
 
-type GeminiSettings struct {
+type AgentSettings struct {
 	ApiKey   string `json:"apiKey"`
 	Security struct {
 		Auth struct {
@@ -18,13 +18,13 @@ type GeminiSettings struct {
 	} `json:"tools"`
 }
 
-func LoadGeminiSettings(path string) (*GeminiSettings, error) {
+func LoadAgentSettings(path string) (*AgentSettings, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
-	var settings GeminiSettings
+	var settings AgentSettings
 	if err := json.Unmarshal(data, &settings); err != nil {
 		return nil, err
 	}
@@ -32,12 +32,12 @@ func LoadGeminiSettings(path string) (*GeminiSettings, error) {
 	return &settings, nil
 }
 
-func GetGeminiSettings() (*GeminiSettings, error) {
+func GetAgentSettings() (*AgentSettings, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, err
 	}
 
 	path := filepath.Join(home, ".gemini", "settings.json")
-	return LoadGeminiSettings(path)
+	return LoadAgentSettings(path)
 }

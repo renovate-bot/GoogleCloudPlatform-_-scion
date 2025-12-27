@@ -15,14 +15,14 @@ Ensure that your `$GOPATH/bin` is in your system `$PATH`.
 ## Concepts
 
 - **Agent**: An isolated container running an LLM-driven task. Each agent has its own home directory, workspace, and credentials.
-- **Grove**: A "grove" is a project workspace where agents live. It corresponds to a `.scion` directory which contains agent configurations and templates.
+- **Grove**: A "grove" is a project workspace where agents live. It corresponds to a `.scion` directory which contains agent configurations and templates. When initialized, it includes default templates for supported providers (`gemini-default`, `claude-default`).
 - **Template**: A blueprint for an agent, defining its base configuration, system prompt, and tools.
 
 ## Quick Start
 
 ### 1. Initialize a Grove
 
-Navigate to your project root and initialize a new Scion grove. This creates the `.scion` directory structure.
+Navigate to your project root and initialize a new Scion grove. This creates the `.scion` directory structure and seeds default templates for supported providers (e.g., Gemini and Claude).
 
 ```bash
 cd my-project
@@ -35,14 +35,14 @@ You can launch an agent immediately using `start` (or its alias `run`), or provi
 
 #### Option A: Quick Start (Immediate Execution)
 
-Launch a new agent to perform a specific task. By default, this runs in the background.
+Launch a new agent to perform a specific task. By default, this runs in the background using the `gemini-default` template.
 
 ```bash
-# Start a generic agent named "coder"
+# Start a gemini agent named "coder" (uses gemini-default by default)
 scion start coder "Refactor the authentication middleware in pkg/auth"
 
-# Using the 'run' alias
-scion run auditor "Audit the user input validation" --type security-auditor
+# Start a Claude-based agent
+scion run auditor "Audit the user input validation" --type claude-default
 
 # Start and immediately attach to the session
 scion start debug "Help me debug this error" --attach
@@ -132,11 +132,11 @@ Templates serve as blueprints for new agents. You can manage them using the `tem
   ```bash
   scion templates delete my-special-tpl
   ```
-- **Update the default template**:
+- **Update default templates**:
   ```bash
   scion templates update-default
   ```
-  *(Note: This is useful for restoring or syncing the default template files with the latest defaults from the Scion binary.)*
+  *(Note: This restores or syncs the default `gemini-default` and `claude-default` templates with the latest defaults from the Scion binary.)*
 
 Use the `--global` flag with these commands to target the global template store in `~/.scion/templates`.
 

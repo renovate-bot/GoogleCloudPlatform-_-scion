@@ -1,0 +1,28 @@
+{
+    "env": {
+    "CLAUDE_CODE_USE_VERTEX": "1",
+    "CLOUD_ML_REGION": "us-east5",
+    "ANTHROPIC_VERTEX_PROJECT_ID": "ptone-misc",
+    "ANTHROPIC_MODEL":"claude-sonnet-4@20250514"
+  },
+  "autoUpdater": {
+    "disabled": true
+  },
+  "telemetry": {
+    "enabled": false
+  },
+  "permissions": {
+        "allow": [
+      "*"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [{"matcher": "*", "hooks": [{"name": "scion-status", "type": "command", "command": "python3 $HOME/scion_hook.py"}]}],
+    "SessionEnd": [{"matcher": "*", "hooks": [{"name": "scion-status", "type": "command", "command": "python3 $HOME/scion_hook.py"}]}],
+    "BeforeAgent": [{"matcher": "*", "hooks": [{"name": "scion-status", "type": "command", "command": "python3 $HOME/scion_hook.py"}]}],
+    "AfterAgent": [{"matcher": "*", "hooks": [{"name": "scion-status", "type": "command", "command": "python3 $HOME/scion_hook.py"}]}],
+    "BeforeTool": [{"matcher": "*", "hooks": [{"name": "scion-status", "type": "command", "command": "python3 $HOME/scion_hook.py"}]}],
+    "AfterTool": [{"matcher": "*", "hooks": [{"name": "scion-status", "type": "command", "command": "python3 $HOME/scion_hook.py"}]}],
+    "Notification": [{"matcher": "ToolPermission", "hooks": [{"name": "scion-status", "type": "command", "command": "python3 $HOME/scion_hook.py"}]}]
+  }
+}

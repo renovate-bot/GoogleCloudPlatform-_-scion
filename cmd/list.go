@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"text/tabwriter"
 
+	"github.com/ptone/scion-agent/pkg/api"
 	"github.com/ptone/scion-agent/pkg/config"
 	"github.com/ptone/scion-agent/pkg/runtime"
 	"github.com/spf13/cobra"
@@ -88,7 +89,7 @@ var listCmd = &cobra.Command{
 				if err != nil {
 					continue
 				}
-				var cfg config.ScionConfig
+				var cfg api.ScionConfig
 				if err := json.Unmarshal(data, &cfg); err == nil && cfg.Agent != nil {
 					agents = append(agents, runtime.AgentInfo{
 						Name:      e.Name(),
@@ -120,7 +121,7 @@ var listCmd = &cobra.Command{
 				agentScionJSON := filepath.Join(a.GrovePath, "agents", a.Name, "home", "scion.json")
 				data, err := os.ReadFile(agentScionJSON)
 				if err == nil {
-					var cfg config.ScionConfig
+					var cfg api.ScionConfig
 					if err := json.Unmarshal(data, &cfg); err == nil && cfg.Agent != nil {
 						agentStatus = cfg.Agent.Status
 						if agentStatus == "" {

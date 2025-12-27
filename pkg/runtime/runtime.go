@@ -3,7 +3,8 @@ package runtime
 import (
 	"context"
 
-	"github.com/ptone/scion-agent/pkg/config"
+	"github.com/ptone/scion-agent/pkg/api"
+	"github.com/ptone/scion-agent/pkg/harness"
 )
 
 type AgentInfo struct {
@@ -27,8 +28,10 @@ type RunConfig struct {
 	Workspace    string
 	RepoRoot     string
 	Env          []string
+	Volumes      []api.VolumeMount
 	Labels       map[string]string
-	Auth         config.AuthConfig
+	Auth         api.AuthConfig
+	Harness      harness.Harness
 	UseTmux      bool
 	Model        string
 	Task         string

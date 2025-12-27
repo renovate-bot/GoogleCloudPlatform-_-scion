@@ -11,7 +11,7 @@ func GetRuntime() Runtime {
 	sandbox := os.Getenv("GEMINI_SANDBOX")
 	
 	if sandbox == "" {
-		if settings, err := config.GetGeminiSettings(); err == nil {
+		if settings, err := config.GetAgentSettings(); err == nil {
 			switch v := settings.Tools.Sandbox.(type) {
 			case string:
 				sandbox = v

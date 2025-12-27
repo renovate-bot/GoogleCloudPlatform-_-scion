@@ -6,7 +6,17 @@ The `scion.json` file is used within templates and agent directories to configur
 
 ### `template` (string)
 The name of the template this configuration belongs to.
-- **Example**: `"template": "default"`
+- **Example**: `"template": "gemini-default"`
+
+### `harness_provider` (string)
+The agent harness to use. This determines how environment variables are propagated and how the agent is executed.
+- **Supported values**: `gemini-cli`, `claude-code`, `generic`
+- **Example**: `"harness_provider": "claude-code"`
+
+### `config_dir` (string)
+The directory inside the agent's home where the harness stores its configuration.
+- **Default**: `.gemini` for `gemini-cli`, `.claude` for `claude-code`, `.scion` for `generic`.
+- **Example**: `"config_dir": ".claude"`
 
 ### `unix_username` (string)
 The username used for the primary user inside the container.
@@ -17,6 +27,15 @@ The username used for the primary user inside the container.
 The container image to use for the agent.
 - **Default**: `gemini-cli-sandbox`
 - **Example**: `"image": "my-custom-gemini-agent:latest"`
+
+### `env` (object)
+A map of environment variables to set in the agent container.
+- **Example**: `{"MY_VAR": "my-value"}`
+
+### `volumes` (array)
+A list of volume mounts to add to the agent container.
+- **Fields**: `source`, `target`, `read_only` (bool)
+- **Example**: `[{"source": "/tmp/data", "target": "/data", "read_only": true}]`
 
 ### `detached` (boolean)
 Whether the agent should run in detached mode by default.
@@ -30,9 +49,9 @@ If set to `true`, the agent's main process will be wrapped in a `tmux` session. 
 - **Example**: `"use_tmux": true`
 
 ### `model` (string)
-The Gemini model ID to use for the agent.
-- **Default**: `"flash"`
-- **Details**: This value is propagated to the agent container as the `GEMINI_MODEL` environment variable. The value `"flash"` is a special ID recognized by the Gemini CLI as the best available flash model.
+The model ID to use for the agent.
+- **Default**: `"flash"` for Gemini
+- **Details**: This value is propagated to the agent container as an environment variable (e.g., `GEMINI_MODEL` for Gemini CLI).
 - **Example**: `"model": "pro"`
 
 ### `agent` (object)
@@ -40,4 +59,4 @@ The Gemini model ID to use for the agent.
 - **Fields**: `grove`, `name`, `status`.
 
 ## Inheritance
-`scion` uses a template inheritance system. Configuration fields are merged from the `default` template, then the specified template type, and finally any overrides in the agent's own directory. The last value defined for a field takes precedence.
+`scion` uses a template inheritance system. Configuration fields are merged from the specified template type and finally any overrides in the agent's own directory. The last value defined for a field takes precedence. Unlike earlier versions, there is no longer a single global `default` template that all templates inherit from; instead, agents start from a specific provider default like `gemini-default` or `claude-default`.

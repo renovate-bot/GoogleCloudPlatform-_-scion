@@ -8,7 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ptone/scion-agent/pkg/config"
+	"github.com/ptone/scion-agent/pkg/api"
+	"github.com/ptone/scion-agent/pkg/harness"
 )
 
 func TestBuildCommonRunArgs(t *testing.T) {
@@ -31,6 +32,7 @@ func TestBuildCommonRunArgs(t *testing.T) {
 		{
 			name: "basic config",
 			config: RunConfig{
+				Harness:      &harness.GeminiCLI{},
 				Name:         "test-agent",
 				UnixUsername: "scion",
 				Image:        "scion-agent:latest",
@@ -41,6 +43,7 @@ func TestBuildCommonRunArgs(t *testing.T) {
 		{
 			name: "workspace and home",
 			config: RunConfig{
+				Harness:      &harness.GeminiCLI{},
 				Name:         "test-agent",
 				UnixUsername: "scion",
 				Image:        "scion-agent:latest",
@@ -57,8 +60,9 @@ func TestBuildCommonRunArgs(t *testing.T) {
 		{
 			name: "gemini api key",
 			config: RunConfig{
+				Harness:      &harness.GeminiCLI{},
 				Name: "test-agent",
-				Auth: config.AuthConfig{
+				Auth: api.AuthConfig{
 					GeminiAPIKey: "sk-123",
 				},
 				Image: "scion-agent:latest",
@@ -68,6 +72,7 @@ func TestBuildCommonRunArgs(t *testing.T) {
 		{
 			name: "labels and tmux",
 			config: RunConfig{
+				Harness:      &harness.GeminiCLI{},
 				Name: "test-agent",
 				Labels: map[string]string{
 					"foo": "bar",
@@ -85,10 +90,11 @@ func TestBuildCommonRunArgs(t *testing.T) {
 		{
 			name: "oauth propagation with home",
 			config: RunConfig{
+				Harness:      &harness.GeminiCLI{},
 				Name:         "test-agent",
 				UnixUsername: "scion",
 				HomeDir:      tmpHome,
-				Auth: config.AuthConfig{
+				Auth: api.AuthConfig{
 					OAuthCreds: oauthFile,
 				},
 				Image: "scion-agent:latest",
@@ -98,9 +104,10 @@ func TestBuildCommonRunArgs(t *testing.T) {
 		{
 			name: "adc propagation without home",
 			config: RunConfig{
+				Harness:      &harness.GeminiCLI{},
 				Name:         "test-agent",
 				UnixUsername: "scion",
-				Auth: config.AuthConfig{
+				Auth: api.AuthConfig{
 					GoogleAppCredentials: adcFile,
 				},
 				Image: "scion-agent:latest",
@@ -114,8 +121,9 @@ func TestBuildCommonRunArgs(t *testing.T) {
 		{
 			name: "other auth and model",
 			config: RunConfig{
+				Harness:      &harness.GeminiCLI{},
 				Name: "test-agent",
-				Auth: config.AuthConfig{
+				Auth: api.AuthConfig{
 					GoogleAPIKey:       "google-123",
 					VertexAPIKey:       "vertex-123",
 					GoogleCloudProject: "my-project",
@@ -133,6 +141,7 @@ func TestBuildCommonRunArgs(t *testing.T) {
 		{
 			name: "resume and env",
 			config: RunConfig{
+				Harness:      &harness.GeminiCLI{},
 				Name:  "test-agent",
 				Image: "scion-agent:latest",
 				Env:   []string{"FOO=BAR"},
@@ -147,6 +156,7 @@ func TestBuildCommonRunArgs(t *testing.T) {
 		{
 			name: "resume and tmux",
 			config: RunConfig{
+				Harness:      &harness.GeminiCLI{},
 				Name:    "test-agent",
 				Image:   "scion-agent:latest",
 				UseTmux: true,
@@ -160,6 +170,7 @@ func TestBuildCommonRunArgs(t *testing.T) {
 		{
 			name: "template label",
 			config: RunConfig{
+				Harness:      &harness.GeminiCLI{},
 				Name:     "test-agent",
 				Image:    "scion-agent:latest",
 				Template: "my-template",
@@ -171,9 +182,10 @@ func TestBuildCommonRunArgs(t *testing.T) {
 		{
 			name: "oauth without home",
 			config: RunConfig{
+				Harness:      &harness.GeminiCLI{},
 				Name:         "test-agent",
 				UnixUsername: "scion",
-				Auth: config.AuthConfig{
+				Auth: api.AuthConfig{
 					OAuthCreds: oauthFile,
 				},
 				Image: "scion-agent:latest",
@@ -186,6 +198,7 @@ func TestBuildCommonRunArgs(t *testing.T) {
 		{
 			name: "git relative workspace",
 			config: RunConfig{
+				Harness:      &harness.GeminiCLI{},
 				Name:         "test-agent",
 				UnixUsername: "scion",
 				RepoRoot:     "/home/user/repo",
@@ -196,6 +209,21 @@ func TestBuildCommonRunArgs(t *testing.T) {
 				"-v /home/user/repo/.git:/repo-root/.git",
 				"-v /home/user/repo/.scion/agents/test-agent/workspace:/repo-root/.scion/agents/test-agent/workspace",
 				"--workdir /repo-root/.scion/agents/test-agent/workspace",
+			},
+		},
+		{
+			name: "generic volumes",
+			config: RunConfig{
+				Harness: &harness.GeminiCLI{},
+				Volumes: []api.VolumeMount{
+					{Source: "/host/path", Target: "/container/path", ReadOnly: true},
+					{Source: "/host/data", Target: "/container/data", ReadOnly: false},
+				},
+				Image: "scion-agent:latest",
+			},
+			wantIn: []string{
+				"-v /host/path:/container/path:ro",
+				"-v /host/data:/container/data",
 			},
 		},
 	}
