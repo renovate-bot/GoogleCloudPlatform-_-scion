@@ -78,6 +78,20 @@ Configuration for running the agent in a Kubernetes cluster.
   }
   ```
 
+### `gemini` (object)
+Configuration specific to the Gemini harness.
+- **Fields**:
+    - `auth_selectedType` (string): The authentication method to use.
+        - `gemini-api-key`: Use `GEMINI_API_KEY` environment variable.
+        - `oauth-personal`: Use OAuth credentials stored in `oauth_creds.json`.
+        - `vertex-ai`: Use Vertex AI authentication (requires `gcloud` configuration).
+- **Example**:
+  ```json
+  "gemini": {
+    "auth_selectedType": "vertex-ai"
+  }
+  ```
+
 ### `agent` (object)
 *Internal usage*: This object is typically populated by the Scion CLI during provisioning to track instance-specific state.
 - **Fields**: `grove`, `name`, `status`.
