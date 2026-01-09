@@ -40,6 +40,9 @@ func FindProjectRoot() (string, bool) {
 	for {
 		p := filepath.Join(dir, DotScion)
 		if info, err := os.Stat(p); err == nil && info.IsDir() {
+			if abs, err := filepath.EvalSymlinks(p); err == nil {
+				return abs, true
+			}
 			return p, true
 		}
 
