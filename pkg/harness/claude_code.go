@@ -84,16 +84,9 @@ func (c *ClaudeCode) SeedTemplateDir(templateDir string, force bool) error {
 	claudeJSONPath := filepath.Join(homeDir, ".claude.json")
 	claudeJSONData, err := config.EmbedsFS.ReadFile(filepath.Join("embeds", c.GetEmbedDir(), ".claude.json"))
 	if err == nil {
-		// Always write .claude.json if force or creating new
-		baseName := filepath.Base(claudeJSONPath)
-		if force || baseName == ".claude.json" { // Always write .claude.json logic from original SeedTemplateDir
-			if err := os.WriteFile(claudeJSONPath, claudeJSONData, 0644); err != nil {
-				return fmt.Errorf("failed to write .claude.json: %w", err)
-			}
-		} else if _, err := os.Stat(claudeJSONPath); os.IsNotExist(err) {
-			if err := os.WriteFile(claudeJSONPath, claudeJSONData, 0644); err != nil {
-				return fmt.Errorf("failed to write .claude.json: %w", err)
-			}
+		// Always write .claude.json to ensure it matches current defaults
+		if err := os.WriteFile(claudeJSONPath, claudeJSONData, 0644); err != nil {
+			return fmt.Errorf("failed to write .claude.json: %w", err)
 		}
 	}
 

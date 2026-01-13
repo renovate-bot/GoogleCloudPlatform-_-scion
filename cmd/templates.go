@@ -6,7 +6,6 @@ import (
 	"os"
 	"text/tabwriter"
 
-	"github.com/ptone/scion-agent/pkg/api"
 	"github.com/ptone/scion-agent/pkg/config"
 	"github.com/ptone/scion-agent/pkg/harness"
 	"github.com/spf13/cobra"
@@ -126,12 +125,7 @@ var templatesUpdateDefaultCmd = &cobra.Command{
 	Short: "Update default templates with the latest from the binary",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		global, _ := cmd.Flags().GetBool("global")
-		harnesses := []api.Harness{
-			&harness.GeminiCLI{},
-			&harness.ClaudeCode{},
-			&harness.OpenCode{},
-			&harness.Codex{},
-		}
+		harnesses := harness.All()
 		err := config.UpdateDefaultTemplates(global, harnesses)
 		if err != nil {
 			return err

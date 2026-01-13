@@ -18,3 +18,12 @@ func New(harnessName string) api.Harness {
 		return &Generic{}
 	}
 }
+
+func All() []api.Harness {
+	return []api.Harness{
+		&GeminiCLI{},
+		&ClaudeCode{},
+		&OpenCode{},
+		&Codex{},
+	}
+}
