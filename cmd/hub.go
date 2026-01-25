@@ -574,6 +574,13 @@ func runHubEnable(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to save setting: %w", err)
 	}
 
+	// If the endpoint was provided via --hub flag, persist it to settings
+	if hubEndpoint != "" {
+		if err := config.UpdateSetting(resolvedPath, "hub.endpoint", hubEndpoint, isGlobal); err != nil {
+			return fmt.Errorf("failed to save endpoint: %w", err)
+		}
+	}
+
 	fmt.Printf("Hub integration enabled.\n")
 	fmt.Printf("Endpoint: %s\n", endpoint)
 	fmt.Printf("Hub Status: %s (version %s)\n", health.Status, health.Version)
