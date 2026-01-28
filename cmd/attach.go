@@ -24,7 +24,7 @@ If the agent was started with tmux support, this will attach to the tmux session
 		agentName := args[0]
 
 		// Check if Hub is enabled - attach is not supported via Hub yet
-		hubCtx, err := CheckHubAvailability(grovePath)
+		hubCtx, err := CheckHubAvailabilityForAgent(grovePath, agentName, false)
 		if err != nil {
 			return err
 		}

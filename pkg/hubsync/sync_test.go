@@ -163,6 +163,117 @@ func TestGetLocalAgents_NoDir(t *testing.T) {
 	}
 }
 
+func TestSyncResult_ExcludeAgent(t *testing.T) {
+	tests := []struct {
+		name           string
+		result         SyncResult
+		excludeAgent   string
+		expectedSync   bool
+		expectedRegLen int
+		expectedRemLen int
+	}{
+		{
+			name: "exclude agent from ToRegister",
+			result: SyncResult{
+				ToRegister: []string{"agent1", "agent2"},
+				ToRemove:   []string{},
+				InSync:     []string{"agent3"},
+			},
+			excludeAgent:   "agent1",
+			expectedSync:   false, // still has agent2 to register
+			expectedRegLen: 1,
+			expectedRemLen: 0,
+		},
+		{
+			name: "exclude agent from ToRemove",
+			result: SyncResult{
+				ToRegister: []string{},
+				ToRemove:   []string{"agent1", "agent2"},
+				InSync:     []string{"agent3"},
+			},
+			excludeAgent:   "agent1",
+			expectedSync:   false, // still has agent2 to remove
+			expectedRegLen: 0,
+			expectedRemLen: 1,
+		},
+		{
+			name: "exclude only agent in ToRegister makes it in sync",
+			result: SyncResult{
+				ToRegister: []string{"agent1"},
+				ToRemove:   []string{},
+				InSync:     []string{"agent2"},
+			},
+			excludeAgent:   "agent1",
+			expectedSync:   true,
+			expectedRegLen: 0,
+			expectedRemLen: 0,
+		},
+		{
+			name: "exclude only agent in ToRemove makes it in sync",
+			result: SyncResult{
+				ToRegister: []string{},
+				ToRemove:   []string{"agent1"},
+				InSync:     []string{"agent2"},
+			},
+			excludeAgent:   "agent1",
+			expectedSync:   true,
+			expectedRegLen: 0,
+			expectedRemLen: 0,
+		},
+		{
+			name: "exclude agent from both lists",
+			result: SyncResult{
+				ToRegister: []string{"agent1"},
+				ToRemove:   []string{"agent1"}, // unlikely but test the logic
+				InSync:     []string{},
+			},
+			excludeAgent:   "agent1",
+			expectedSync:   true,
+			expectedRegLen: 0,
+			expectedRemLen: 0,
+		},
+		{
+			name: "exclude non-existent agent has no effect",
+			result: SyncResult{
+				ToRegister: []string{"agent1"},
+				ToRemove:   []string{"agent2"},
+				InSync:     []string{},
+			},
+			excludeAgent:   "agent3",
+			expectedSync:   false,
+			expectedRegLen: 1,
+			expectedRemLen: 1,
+		},
+		{
+			name: "empty exclude agent has no effect",
+			result: SyncResult{
+				ToRegister: []string{"agent1"},
+				ToRemove:   []string{"agent2"},
+				InSync:     []string{},
+			},
+			excludeAgent:   "",
+			expectedSync:   false,
+			expectedRegLen: 1,
+			expectedRemLen: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			filtered := tt.result.ExcludeAgent(tt.excludeAgent)
+			if filtered.IsInSync() != tt.expectedSync {
+				t.Errorf("IsInSync() = %v, want %v", filtered.IsInSync(), tt.expectedSync)
+			}
+			if len(filtered.ToRegister) != tt.expectedRegLen {
+				t.Errorf("len(ToRegister) = %d, want %d", len(filtered.ToRegister), tt.expectedRegLen)
+			}
+			if len(filtered.ToRemove) != tt.expectedRemLen {
+				t.Errorf("len(ToRemove) = %d, want %d", len(filtered.ToRemove), tt.expectedRemLen)
+			}
+		})
+	}
+}
+
 func TestContainsIgnoreCase(t *testing.T) {
 	tests := []struct {
 		s        string

@@ -41,8 +41,15 @@ var deleteCmd = &cobra.Command{
 			fmt.Println("Warning: --preserve-branch used outside a git repository; this flag has no effect.")
 		}
 
-		// Check if Hub should be used
-		hubCtx, err := CheckHubAvailability(grovePath)
+		// For delete with --stopped, we can't specify a target agent
+		// For single agent delete, we pass the target agent name to exclude it from sync requirements
+		var targetAgent string
+		if !deleteStopped && len(args) > 0 {
+			targetAgent = args[0]
+		}
+
+		// Check if Hub should be used, excluding the target agent from sync requirements
+		hubCtx, err := CheckHubAvailabilityForAgent(grovePath, targetAgent, false)
 		if err != nil {
 			return err
 		}

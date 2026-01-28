@@ -22,8 +22,8 @@ var stopCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		agentName := args[0]
 
-		// Check if Hub should be used
-		hubCtx, err := CheckHubAvailability(grovePath)
+		// Check if Hub should be used, excluding the target agent from sync requirements.
+		hubCtx, err := CheckHubAvailabilityForAgent(grovePath, agentName, false)
 		if err != nil {
 			return err
 		}

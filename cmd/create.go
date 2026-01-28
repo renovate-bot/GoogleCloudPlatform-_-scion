@@ -22,8 +22,10 @@ The agent will be created from a template.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		agentName := args[0]
 
-		// Check if Hub should be used
-		hubCtx, err := CheckHubAvailability(grovePath)
+		// Check if Hub should be used, excluding the target agent from sync requirements.
+		// This allows creating an agent even if it already exists on Hub (recreate scenario)
+		// or if other agents are out of sync.
+		hubCtx, err := CheckHubAvailabilityForAgent(grovePath, agentName, false)
 		if err != nil {
 			return err
 		}

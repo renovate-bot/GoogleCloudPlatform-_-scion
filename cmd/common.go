@@ -52,10 +52,19 @@ func CheckHubAvailability(grovePath string) (*HubContext, error) {
 
 // CheckHubAvailabilityWithOptions is like CheckHubAvailability but allows skipping sync.
 func CheckHubAvailabilityWithOptions(grovePath string, skipSync bool) (*HubContext, error) {
+	return CheckHubAvailabilityForAgent(grovePath, "", skipSync)
+}
+
+// CheckHubAvailabilityForAgent checks Hub availability for an operation on a specific agent.
+// The targetAgent parameter specifies the agent being operated on, which will be excluded
+// from sync requirements. This allows operations like delete to proceed without first
+// syncing the target agent (e.g., deleting a local-only agent without registering it).
+func CheckHubAvailabilityForAgent(grovePath, targetAgent string, skipSync bool) (*HubContext, error) {
 	opts := hubsync.EnsureHubReadyOptions{
 		AutoConfirm: autoConfirm,
 		NoHub:       noHub,
 		SkipSync:    skipSync,
+		TargetAgent: targetAgent,
 	}
 
 	hubCtx, err := hubsync.EnsureHubReady(grovePath, opts)
@@ -192,8 +201,10 @@ func RunAgent(cmd *cobra.Command, args []string, resume bool) error {
 	agentName := args[0]
 	task := strings.Join(args[1:], " ")
 
-	// Check if Hub should be used
-	hubCtx, err := CheckHubAvailability(grovePath)
+	// Check if Hub should be used, excluding the target agent from sync requirements.
+	// This allows starting/resuming an agent even if it exists on Hub but not locally
+	// (will be created via Hub) or if other agents are out of sync.
+	hubCtx, err := CheckHubAvailabilityForAgent(grovePath, agentName, false)
 	if err != nil {
 		return err
 	}

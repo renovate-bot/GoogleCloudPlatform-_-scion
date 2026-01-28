@@ -25,6 +25,33 @@ func (r *SyncResult) IsInSync() bool {
 	return len(r.ToRegister) == 0 && len(r.ToRemove) == 0
 }
 
+// ExcludeAgent returns a new SyncResult with the specified agent excluded from
+// ToRegister and ToRemove lists. This is used when operating on a specific agent
+// so that the sync check doesn't require syncing the target of the operation.
+func (r *SyncResult) ExcludeAgent(agentName string) *SyncResult {
+	if agentName == "" {
+		return r
+	}
+
+	result := &SyncResult{
+		InSync: r.InSync,
+	}
+
+	for _, name := range r.ToRegister {
+		if name != agentName {
+			result.ToRegister = append(result.ToRegister, name)
+		}
+	}
+
+	for _, name := range r.ToRemove {
+		if name != agentName {
+			result.ToRemove = append(result.ToRemove, name)
+		}
+	}
+
+	return result
+}
+
 // HubContext holds the context for Hub operations.
 type HubContext struct {
 	Client     hubclient.Client
@@ -44,6 +71,11 @@ type EnsureHubReadyOptions struct {
 	NoHub bool
 	// SkipSync skips agent synchronization check.
 	SkipSync bool
+	// TargetAgent is the agent being operated on. If set, this agent is excluded
+	// from sync requirements since the current operation will change its state.
+	// For delete: the agent won't be required to be registered on Hub first.
+	// For create: the agent won't be required to be removed from Hub first.
+	TargetAgent string
 }
 
 // EnsureHubReady performs all Hub pre-flight checks before agent operations.
@@ -178,9 +210,17 @@ func EnsureHubReady(grovePath string, opts EnsureHubReadyOptions) (*HubContext, 
 		return nil, wrapHubError(fmt.Errorf("failed to compare agents: %w", err))
 	}
 
-	if !syncResult.IsInSync() {
-		if ShowSyncPlan(syncResult, opts.AutoConfirm) {
-			if err := ExecuteSync(context.Background(), hubCtx, syncResult); err != nil {
+	// If we're operating on a specific agent, exclude it from sync requirements.
+	// This allows operations like delete to proceed without first syncing the
+	// target agent (e.g., you can delete a local-only agent without registering it).
+	effectiveSyncResult := syncResult
+	if opts.TargetAgent != "" {
+		effectiveSyncResult = syncResult.ExcludeAgent(opts.TargetAgent)
+	}
+
+	if !effectiveSyncResult.IsInSync() {
+		if ShowSyncPlan(effectiveSyncResult, opts.AutoConfirm) {
+			if err := ExecuteSync(context.Background(), hubCtx, effectiveSyncResult); err != nil {
 				return nil, wrapHubError(fmt.Errorf("failed to sync agents: %w", err))
 			}
 		} else {
