@@ -12,12 +12,12 @@ For architectural details and component specifications, see **`web-frontend-desi
 
 | Milestone | Status | Description |
 |-----------|--------|-------------|
-| M1 | Not Started | Koa Server Foundation |
-| M2 | Not Started | Lit SSR Integration |
-| M3 | Not Started | Web Awesome Component Library |
-| M4 | Not Started | Authentication Flow |
-| M5 | Not Started | Hub API Proxy |
-| M6 | Not Started | Grove & Agent Pages |
+| M1 | Complete | Koa Server Foundation |
+| M2 | Complete | Lit SSR Integration |
+| M3 | Complete | Web Awesome Component Library |
+| M4 | Complete | Authentication Flow |
+| M5 | In Progress | Hub API Proxy |
+| M6 | In Progress | Grove & Agent Pages |
 | M7 | Not Started | SSE + NATS Real-Time Updates |
 | M8 | Not Started | Terminal Component |
 | M9 | Not Started | Agent Creation Workflow |
@@ -39,22 +39,22 @@ For architectural details and component specifications, see **`web-frontend-desi
 
 ### Deliverables
 
-- [ ] **Project scaffolding**
+- [x] **Project scaffolding**
    - TypeScript configuration
    - ESLint/Prettier setup
    - Vite build configuration
    - Package.json with dependencies
 
-- [ ] **Koa application core**
+- [x] **Koa application core**
    - Application entry point (`src/server/index.ts`)
    - Middleware stack (logger, error handler, security headers)
    - Static asset serving from `public/`
 
-- [ ] **Health endpoints**
+- [x] **Health endpoints**
    - `GET /healthz` - liveness probe
    - `GET /readyz` - readiness probe (initially same as liveness)
 
-- [ ] **Development workflow**
+- [x] **Development workflow**
    - Hot reload for server changes
    - Vite dev server for client assets
    - npm scripts: `dev`, `build`, `start`
@@ -97,22 +97,22 @@ web/
 
 ### Deliverables
 
-- [ ] **SSR renderer**
+- [x] **SSR renderer**
    - HTML shell template with hydration script injection
    - Lit component rendering via `@lit-labs/ssr`
    - Initial data serialization (`__SCION_DATA__` script tag)
 
-- [ ] **Basic Lit components (server + client)**
+- [x] **Basic Lit components (server + client)**
    - `<scion-app>` - application shell
    - `<scion-page-home>` - simple home page
    - `<scion-page-404>` - not found page
 
-- [ ] **Client hydration**
+- [x] **Client hydration**
    - Client entry point (`src/client/main.ts`)
    - Hydration of SSR content
    - Client-side router setup (@vaadin/router)
 
-- [ ] **Page routes**
+- [x] **Page routes**
    - `GET /` - home page (SSR)
    - `GET /*` - catch-all for SPA routing
 
@@ -141,23 +141,23 @@ web/
 
 ### Deliverables
 
-- [ ] **Web Awesome integration**
-   - CDN script/style loading (initial approach)
+- [x] **Web Awesome integration**
+   - CDN script/style loading (using Shoelace)
    - Theme CSS custom properties
    - Component registration verification
 
-- [ ] **Core UI components**
+- [x] **Core UI components**
    - `<scion-nav>` - sidebar navigation
    - `<scion-header>` - top header bar
    - `<scion-breadcrumb>` - breadcrumb navigation
    - `<scion-status-badge>` - status indicator
 
-- [ ] **Layout system**
+- [x] **Layout system**
    - Responsive sidebar layout
    - Content area with padding/scrolling
    - Mobile breakpoint handling
 
-- [ ] **Theme configuration**
+- [x] **Theme configuration**
    - Light/dark mode support
    - CSS custom property overrides
    - Consistent color palette
@@ -188,28 +188,28 @@ web/
 
 ### Deliverables
 
-- [ ] **Session middleware**
+- [x] **Session middleware**
    - koa-session configuration
    - Secure cookie settings
    - Session store (in-memory for dev, Redis for prod)
 
-- [ ] **OAuth routes**
+- [x] **OAuth routes**
    - `GET /auth/login/:provider` - initiate OAuth
    - `GET /auth/callback/:provider` - OAuth callback
    - `POST /auth/logout` - clear session
    - `GET /auth/me` - current user info
 
-- [ ] **OAuth providers**
+- [x] **OAuth providers**
    - Google OAuth 2.0 integration
    - GitHub OAuth integration
    - Provider abstraction for future additions
 
-- [ ] **Auth middleware**
+- [x] **Auth middleware**
    - `auth()` middleware for protected routes
    - Redirect to login for unauthenticated requests
    - User context injection into SSR
 
-- [ ] **Login UI**
+- [x] **Login UI**
    - `<scion-login-page>` component
    - Provider selection buttons
    - Error handling/display
@@ -251,13 +251,13 @@ BASE_URL=http://localhost:8080
 
 ### Deliverables
 
-- [ ] **API proxy middleware**
+- [x] **API proxy middleware**
    - Route `/api/*` to Hub API
    - Forward authentication headers
    - Request/response logging
    - Error transformation
 
-- [ ] **Hub client service**
+- [x] **Hub client service**
    - Typed API client for server-side calls
    - Request timeout handling
    - Retry logic with backoff
@@ -293,6 +293,12 @@ Create a simple mock for development without a real Hub:
 // Serves static JSON responses for Hub API endpoints
 ```
 
+### Implementation Notes
+
+- **API Proxy** (`src/server/routes/api.ts`): Full implementation with auth header forwarding, debug logging, error transformation, and query string passthrough
+- **Dev Token Injection**: When `DEV_AUTH=true`, the proxy injects a dev token for local Hub authentication
+- **SSR Data Fetching**: Deferred to client-side in current implementation; pages fetch data on mount rather than during SSR
+
 ---
 
 ## Milestone 6: Grove & Agent Pages
@@ -302,24 +308,25 @@ Create a simple mock for development without a real Hub:
 ### Deliverables
 
 - [ ] **Grove pages**
-   - `<scion-grove-list>` - list all groves with filtering
-   - `<scion-grove-detail>` - single grove view with agent list
-   - Grove card component with status summary
+   - [x] `<scion-grove-list>` - list all groves with filtering
+   - [ ] `<scion-grove-detail>` - single grove view with agent list
+   - [x] Grove card component with status summary
 
 - [ ] **Agent pages**
-   - `<scion-agent-list>` - agents within a grove
-   - `<scion-agent-detail>` - single agent view
-   - Agent card component with status, actions
+   - [x] `<scion-agent-list>` - agents within a grove
+   - [ ] `<scion-agent-detail>` - single agent view
+   - [x] Agent card component with status, actions
 
 - [ ] **Action handlers**
-   - Start/stop agent buttons
-   - Delete agent with confirmation
-   - Create agent dialog (basic)
+   - [ ] Start/stop agent buttons (UI present, not wired)
+   - [ ] Delete agent with confirmation
+   - [ ] Create agent dialog (basic)
 
 - [ ] **State management (client)**
-   - State manager class
-   - Hydration from SSR data
-   - Optimistic updates
+   - [x] Basic client-side state in components
+   - [ ] State manager class
+   - [ ] Hydration from SSR data
+   - [ ] Optimistic updates
 
 ### Test Criteria
 
@@ -343,6 +350,13 @@ Create a simple mock for development without a real Hub:
 | `/groves` | Grove list | All groves |
 | `/groves/:groveId` | Grove detail | Grove + agents |
 | `/agents/:agentId` | Agent detail | Agent |
+
+### Implementation Notes
+
+- **Grove List** (`src/components/pages/groves.ts`): Fetches from `/api/groves` on mount, displays cards with status badges
+- **Agent List** (`src/components/pages/agents.ts`): Fetches from `/api/agents` on mount, shows agent cards with action buttons (Start/Stop/Terminal - UI only)
+- **Status Badges**: Uses Shoelace badge variants mapped from API status strings
+- **Remaining Work**: Detail pages, wiring action handlers to API calls, proper state management
 
 ---
 
