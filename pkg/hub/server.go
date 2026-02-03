@@ -208,6 +208,7 @@ type Server struct {
 	hostAuthService   *HostAuthService    // Host HMAC authentication service
 	auditLogger       AuditLogger         // Audit logger for security events
 	metrics           MetricsRecorder     // Metrics recorder for host auth
+	controlChannel    *ControlChannelManager // WebSocket control channel for runtime hosts
 }
 
 // New creates a new Hub API server.
@@ -277,6 +278,17 @@ func New(cfg ServerConfig, s store.Store) *Server {
 		srv.metrics = NewHostAuthMetrics()
 		log.Printf("[Hub] Host HMAC authentication enabled")
 	}
+
+	// Initialize control channel manager
+	srv.controlChannel = NewControlChannelManager(ControlChannelConfig{
+		PingInterval:   30 * time.Second,
+		PongWait:       60 * time.Second,
+		WriteWait:      10 * time.Second,
+		MaxMessageSize: 64 * 1024,
+		RequestTimeout: 120 * time.Second,
+		Debug:          cfg.Debug,
+	})
+	log.Printf("[Hub] Control channel manager initialized")
 
 	// Build unified auth configuration
 	srv.authConfig = AuthConfig{
@@ -424,11 +436,29 @@ func (s *Server) SetMetrics(m MetricsRecorder) {
 	s.metrics = m
 }
 
+// GetControlChannelManager returns the control channel manager.
+func (s *Server) GetControlChannelManager() *ControlChannelManager {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.controlChannel
+}
+
 // CreateAuthenticatedDispatcher creates an HTTPAgentDispatcher with authenticated
 // host communication. This dispatcher signs outgoing requests to Runtime Hosts
 // using HMAC authentication based on shared secrets stored in the database.
+// It also supports control channel fallback for NAT traversal.
 func (s *Server) CreateAuthenticatedDispatcher() *HTTPAgentDispatcher {
-	client := NewAuthenticatedHostClient(s.store, s.config.Debug)
+	// Create authenticated HTTP client
+	httpClient := NewAuthenticatedHostClient(s.store, s.config.Debug)
+
+	// Wrap with hybrid client that prefers control channel
+	var client RuntimeHostClient
+	if s.controlChannel != nil {
+		client = NewHybridHostClient(s.controlChannel, httpClient, s.config.Debug)
+	} else {
+		client = httpClient
+	}
+
 	dispatcher := NewHTTPAgentDispatcherWithClient(s.store, client, s.config.Debug)
 
 	// Configure token generator if available
@@ -495,6 +525,7 @@ func (s *Server) Start(ctx context.Context) error {
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.mu.RLock()
 	srv := s.httpServer
+	cc := s.controlChannel
 	s.mu.RUnlock()
 
 	if srv == nil {
@@ -502,6 +533,11 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 
 	log.Println("Hub API server shutting down...")
+
+	// Shutdown control channel first
+	if cc != nil {
+		cc.Shutdown()
+	}
 
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -571,6 +607,9 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/v1/hosts", s.handleHostsEndpoint)
 	s.mux.HandleFunc("/api/v1/hosts/join", s.handleHostJoin)
 	s.mux.HandleFunc("/api/v1/hosts/", s.handleHostByIDRoutes)
+
+	// WebSocket control channel endpoint for Runtime Hosts
+	s.mux.HandleFunc("/api/v1/runtime-hosts/connect", s.handleRuntimeHostConnect)
 }
 
 // applyMiddleware wraps the handler with middleware.
@@ -750,4 +789,57 @@ func extractAction(r *http.Request, prefix string) (id, action string) {
 		action = parts[1]
 	}
 	return
+}
+
+// handleRuntimeHostConnect handles WebSocket upgrade for Runtime Host control channel.
+func (s *Server) handleRuntimeHostConnect(w http.ResponseWriter, r *http.Request) {
+	// Verify this is a WebSocket upgrade request
+	if !isWebSocketUpgrade(r) {
+		writeError(w, 400, ErrCodeInvalidRequest, "WebSocket upgrade required", nil)
+		return
+	}
+
+	// Get host identity from context (set by HostAuthMiddleware)
+	host := GetHostIdentityFromContext(r.Context())
+	if host == nil {
+		// Try to get host ID from header if not authenticated yet
+		hostID := r.Header.Get("X-Scion-Host-ID")
+		if hostID == "" {
+			writeError(w, 401, ErrCodeUnauthorized, "Host authentication required", nil)
+			return
+		}
+
+		// Validate host exists and is authorized
+		if s.hostAuthService == nil {
+			writeError(w, 401, ErrCodeUnauthorized, "Host authentication not enabled", nil)
+			return
+		}
+
+		// For WebSocket, we need to verify HMAC on the upgrade request
+		_, err := s.hostAuthService.ValidateHostSignature(r.Context(), r)
+		if err != nil {
+			log.Printf("[ControlChannel] HMAC validation failed for host %s: %v", hostID, err)
+			writeError(w, 401, ErrCodeHostAuthFailed, "Invalid host signature", nil)
+			return
+		}
+
+		// Use the host ID from header
+		if err := s.controlChannel.HandleUpgrade(w, r, hostID); err != nil {
+			log.Printf("[ControlChannel] Upgrade failed for host %s: %v", hostID, err)
+			// Error already written by upgrader
+		}
+		return
+	}
+
+	// Use authenticated host identity
+	if err := s.controlChannel.HandleUpgrade(w, r, host.ID()); err != nil {
+		log.Printf("[ControlChannel] Upgrade failed for host %s: %v", host.ID(), err)
+		// Error already written by upgrader
+	}
+}
+
+// isWebSocketUpgrade checks if the request is a WebSocket upgrade request.
+func isWebSocketUpgrade(r *http.Request) bool {
+	return strings.ToLower(r.Header.Get("Upgrade")) == "websocket" &&
+		strings.Contains(strings.ToLower(r.Header.Get("Connection")), "upgrade")
 }

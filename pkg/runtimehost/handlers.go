@@ -291,6 +291,12 @@ func (s *Server) handleAgentByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Handle WebSocket attach for PTY
+	if action == "attach" && isPTYWebSocketUpgrade(r) {
+		s.handleAgentAttach(w, r)
+		return
+	}
+
 	// Handle actions
 	if action != "" {
 		s.handleAgentAction(w, r, id, action)

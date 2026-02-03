@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/ptone/scion-agent/pkg/agent"
 	"github.com/ptone/scion-agent/pkg/config"
+	"github.com/ptone/scion-agent/pkg/credentials"
 	"github.com/ptone/scion-agent/pkg/runtime"
+	"github.com/ptone/scion-agent/pkg/wsclient"
 	"github.com/spf13/cobra"
 )
 
@@ -23,14 +26,14 @@ If the agent was started with tmux support, this will attach to the tmux session
 	RunE: func(cmd *cobra.Command, args []string) error {
 		agentName := args[0]
 
-		// Check if Hub is enabled - attach is not supported via Hub yet
+		// Check if Hub is enabled
 		hubCtx, err := CheckHubAvailabilityForAgent(grovePath, agentName, false)
 		if err != nil {
 			return err
 		}
 
 		if hubCtx != nil {
-			return fmt.Errorf("attach is not yet supported when using Hub integration\n\nTo attach locally, use: scion --no-hub attach %s", agentName)
+			return attachViaHub(hubCtx, agentName)
 		}
 
 		// Try to resolve grove info for better error messages
@@ -89,4 +92,47 @@ If the agent was started with tmux support, this will attach to the tmux session
 
 func init() {
 	rootCmd.AddCommand(attachCmd)
+}
+
+// attachViaHub attaches to an agent via Hub WebSocket connection.
+func attachViaHub(hubCtx *HubContext, agentName string) error {
+	PrintUsingHub(hubCtx.Endpoint)
+
+	// Get the grove ID for this project
+	groveID, err := GetGroveID(hubCtx)
+	if err != nil {
+		return wrapHubError(err)
+	}
+
+	// Get agent details from Hub to verify it exists and is running
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	agent, err := hubCtx.Client.GroveAgents(groveID).Get(ctx, agentName)
+	if err != nil {
+		return wrapHubError(fmt.Errorf("failed to get agent '%s': %w", agentName, err))
+	}
+
+	// Check agent status
+	if agent.Status != "running" {
+		return fmt.Errorf("agent '%s' is not running (status: %s)\n\nStart the agent first with: scion start %s",
+			agentName, agent.Status, agentName)
+	}
+
+	// Get access token for WebSocket authentication
+	token := credentials.GetAccessToken(hubCtx.Endpoint)
+	if token == "" {
+		return fmt.Errorf("no access token found for Hub\n\nPlease login first: scion hub auth login")
+	}
+
+	fmt.Printf("Attaching to agent '%s' via Hub...\n", agentName)
+
+	// Connect via WebSocket
+	// Use agent ID for the PTY endpoint
+	agentID := agent.AgentID
+	if agentID == "" {
+		agentID = agentName // Fall back to name if ID not set
+	}
+
+	return wsclient.AttachToAgent(context.Background(), hubCtx.Endpoint, token, agentID)
 }

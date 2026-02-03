@@ -116,3 +116,8 @@ func HubUnreachableError(w http.ResponseWriter, details string) {
 func TemplateError(w http.ResponseWriter, message string) {
 	writeError(w, http.StatusInternalServerError, ErrCodeTemplateError, message, nil)
 }
+
+// Unprocessable writes a 422 Unprocessable Entity response.
+func Unprocessable(w http.ResponseWriter, message string) {
+	writeError(w, http.StatusUnprocessableEntity, ErrCodeValidationError, message, nil)
+}

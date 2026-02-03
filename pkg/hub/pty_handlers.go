@@ -1,0 +1,353 @@
+package hub
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"log"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
+	"github.com/ptone/scion-agent/pkg/wsprotocol"
+)
+
+// PTY endpoint configuration
+const (
+	ptyReadBufferSize  = 4096
+	ptyWriteBufferSize = 4096
+	ptyPongWait        = 60 * time.Second
+	ptyPingInterval    = 30 * time.Second
+	ptyWriteWait       = 10 * time.Second
+)
+
+var ptyUpgrader = websocket.Upgrader{
+	ReadBufferSize:  ptyReadBufferSize,
+	WriteBufferSize: ptyWriteBufferSize,
+	CheckOrigin: func(r *http.Request) bool {
+		// Auth is checked before upgrade
+		return true
+	},
+}
+
+// handleAgentPTY handles WebSocket connections for PTY access to an agent.
+// Route: GET /api/v1/agents/{id}/pty
+func (s *Server) handleAgentPTY(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// Extract agent ID from path
+	agentID := extractAgentIDFromPTYPath(r.URL.Path)
+	if agentID == "" {
+		writeError(w, http.StatusBadRequest, ErrCodeInvalidRequest, "Invalid agent ID", nil)
+		return
+	}
+
+	// Verify WebSocket upgrade
+	if !isWebSocketUpgrade(r) {
+		writeError(w, http.StatusBadRequest, ErrCodeInvalidRequest, "WebSocket upgrade required", nil)
+		return
+	}
+
+	// Check authentication - support both Bearer token and ticket parameter
+	identity := GetIdentityFromContext(ctx)
+	if identity == nil {
+		// Check for ticket parameter (for browser clients)
+		ticket := r.URL.Query().Get("ticket")
+		if ticket != "" {
+			// Validate ticket (single-use token)
+			identity = s.validatePTYTicket(ctx, ticket)
+		}
+	}
+
+	if identity == nil {
+		writeError(w, http.StatusUnauthorized, ErrCodeUnauthorized, "Authentication required", nil)
+		return
+	}
+
+	// Get agent details
+	agent, err := s.store.GetAgent(ctx, agentID)
+	if err != nil {
+		NotFound(w, "Agent")
+		return
+	}
+
+	// Check if user has access to this agent
+	user := GetUserIdentityFromContext(ctx)
+	if user != nil {
+		// Verify user has access to the agent's grove
+		grove, err := s.store.GetGrove(ctx, agent.GroveID)
+		if err != nil || grove.OwnerID != user.ID() {
+			writeError(w, http.StatusForbidden, ErrCodeForbidden, "Access denied", nil)
+			return
+		}
+	}
+
+	// Check if agent has a runtime host
+	if agent.RuntimeHostID == "" {
+		writeError(w, http.StatusUnprocessableEntity, ErrCodeNoRuntimeHost,
+			"Agent has no runtime host", nil)
+		return
+	}
+
+	// Check if host is connected via control channel
+	if s.controlChannel == nil || !s.controlChannel.IsConnected(agent.RuntimeHostID) {
+		writeError(w, http.StatusServiceUnavailable, ErrCodeRuntimeHostUnavail,
+			"Runtime host not connected", nil)
+		return
+	}
+
+	// Upgrade to WebSocket
+	conn, err := ptyUpgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("[PTY] WebSocket upgrade failed for agent %s: %v", agentID, err)
+		return
+	}
+
+	// Create PTY session
+	session := newPTYSession(ctx, agentID, agent.RuntimeHostID, conn, s.controlChannel)
+	defer session.Close()
+
+	log.Printf("[PTY] Session started for agent %s (user: %s)", agentID, identity.ID())
+
+	// Run the session
+	if err := session.Run(); err != nil && err != io.EOF {
+		log.Printf("[PTY] Session error for agent %s: %v", agentID, err)
+	}
+
+	log.Printf("[PTY] Session ended for agent %s", agentID)
+}
+
+// extractAgentIDFromPTYPath extracts the agent ID from a PTY path.
+// Path format: /api/v1/agents/{id}/pty
+func extractAgentIDFromPTYPath(path string) string {
+	const prefix = "/api/v1/agents/"
+	const suffix = "/pty"
+
+	if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, suffix) {
+		return ""
+	}
+
+	path = strings.TrimPrefix(path, prefix)
+	path = strings.TrimSuffix(path, suffix)
+	return path
+}
+
+// validatePTYTicket validates a single-use PTY ticket.
+// Returns the identity associated with the ticket, or nil if invalid.
+func (s *Server) validatePTYTicket(ctx context.Context, ticket string) Identity {
+	// For now, tickets are not implemented - return nil
+	// TODO: Implement ticket validation for browser clients
+	_ = ctx
+	_ = ticket
+	return nil
+}
+
+// PTYSession manages a PTY WebSocket session.
+type PTYSession struct {
+	ctx           context.Context
+	cancel        context.CancelFunc
+	agentID       string
+	hostID        string
+	conn          *websocket.Conn
+	controlChan   *ControlChannelManager
+	stream        *StreamProxy
+	writeMu       sync.Mutex
+	closed        bool
+	closeMu       sync.Mutex
+}
+
+// newPTYSession creates a new PTY session.
+func newPTYSession(ctx context.Context, agentID, hostID string, conn *websocket.Conn, cc *ControlChannelManager) *PTYSession {
+	ctx, cancel := context.WithCancel(ctx)
+	return &PTYSession{
+		ctx:         ctx,
+		cancel:      cancel,
+		agentID:     agentID,
+		hostID:      hostID,
+		conn:        conn,
+		controlChan: cc,
+	}
+}
+
+// Run starts the PTY session and blocks until it ends.
+func (s *PTYSession) Run() error {
+	// Get terminal size from query params or use defaults
+	cols := 80
+	rows := 24
+
+	// Open stream to host
+	stream, err := s.controlChan.OpenStream(s.ctx, s.hostID, wsprotocol.StreamTypePTY, s.agentID, cols, rows)
+	if err != nil {
+		return err
+	}
+	s.stream = stream
+
+	// Set up ping/pong for client connection
+	s.conn.SetPongHandler(func(appData string) error {
+		return s.conn.SetReadDeadline(time.Now().Add(ptyPongWait))
+	})
+
+	// Start goroutines for bidirectional data flow
+	errCh := make(chan error, 2)
+
+	// Client -> Host
+	go func() {
+		errCh <- s.readFromClient()
+	}()
+
+	// Host -> Client
+	go func() {
+		errCh <- s.readFromHost()
+	}()
+
+	// Start ping ticker
+	go s.pingLoop()
+
+	// Wait for either direction to fail
+	err = <-errCh
+	s.Close()
+	return err
+}
+
+// readFromClient reads messages from the WebSocket client and forwards to host.
+func (s *PTYSession) readFromClient() error {
+	if err := s.conn.SetReadDeadline(time.Now().Add(ptyPongWait)); err != nil {
+		return err
+	}
+
+	for {
+		select {
+		case <-s.ctx.Done():
+			return s.ctx.Err()
+		default:
+		}
+
+		_, data, err := s.conn.ReadMessage()
+		if err != nil {
+			return err
+		}
+
+		// Parse the message
+		env, err := wsprotocol.ParseEnvelope(data)
+		if err != nil {
+			continue // Ignore malformed messages
+		}
+
+		switch env.Type {
+		case wsprotocol.TypeData:
+			var msg wsprotocol.PTYDataMessage
+			if err := json.Unmarshal(data, &msg); err != nil {
+				continue
+			}
+			// Forward data to host via stream
+			if err := s.controlChan.SendStreamData(s.hostID, s.stream.streamID, msg.Data); err != nil {
+				return err
+			}
+
+		case wsprotocol.TypeResize:
+			var msg wsprotocol.PTYResizeMessage
+			if err := json.Unmarshal(data, &msg); err != nil {
+				continue
+			}
+			// Forward resize to host
+			// TODO: Implement resize handling in stream protocol
+			log.Printf("[PTY] Resize: %dx%d", msg.Cols, msg.Rows)
+		}
+	}
+}
+
+// readFromHost reads data from the host stream and forwards to client.
+func (s *PTYSession) readFromHost() error {
+	for {
+		data, err := s.stream.Read(s.ctx)
+		if err != nil {
+			return err
+		}
+
+		msg := wsprotocol.NewPTYDataMessage(data)
+		if err := s.writeToClient(msg); err != nil {
+			return err
+		}
+	}
+}
+
+// writeToClient writes a message to the WebSocket client.
+func (s *PTYSession) writeToClient(v interface{}) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
+	if err := s.conn.SetWriteDeadline(time.Now().Add(ptyWriteWait)); err != nil {
+		return err
+	}
+	return s.conn.WriteJSON(v)
+}
+
+// pingLoop sends periodic pings to the client.
+func (s *PTYSession) pingLoop() {
+	ticker := time.NewTicker(ptyPingInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-ticker.C:
+			s.writeMu.Lock()
+			err := s.conn.WriteControl(
+				websocket.PingMessage,
+				[]byte{},
+				time.Now().Add(ptyWriteWait),
+			)
+			s.writeMu.Unlock()
+			if err != nil {
+				return
+			}
+		}
+	}
+}
+
+// Close closes the PTY session.
+func (s *PTYSession) Close() {
+	s.closeMu.Lock()
+	if s.closed {
+		s.closeMu.Unlock()
+		return
+	}
+	s.closed = true
+	s.closeMu.Unlock()
+
+	s.cancel()
+
+	// Close stream to host
+	if s.stream != nil {
+		s.controlChan.CloseStream(s.hostID, s.stream.streamID, "session closed")
+	}
+
+	// Close client WebSocket
+	s.writeMu.Lock()
+	s.conn.WriteControl(
+		websocket.CloseMessage,
+		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
+		time.Now().Add(ptyWriteWait),
+	)
+	s.writeMu.Unlock()
+	s.conn.Close()
+}
+
+// CreatePTYTicket creates a single-use ticket for PTY access.
+// This is used for browser clients that can't send headers during WebSocket upgrade.
+func (s *Server) CreatePTYTicket(ctx context.Context, userID, agentID string) (string, error) {
+	// Generate a secure random ticket
+	ticket := uuid.New().String()
+
+	// TODO: Store ticket with expiration (e.g., 60 seconds)
+	// For now, this is a placeholder
+	_ = ctx
+	_ = userID
+	_ = agentID
+
+	return ticket, nil
+}

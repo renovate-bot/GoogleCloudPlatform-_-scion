@@ -88,6 +88,11 @@ type ServerConfig struct {
 	// HeartbeatInterval is the time between heartbeats.
 	// Defaults to 30 seconds if not specified.
 	HeartbeatInterval time.Duration
+
+	// Control channel settings
+	// ControlChannelEnabled enables the WebSocket control channel to the Hub.
+	// This allows NAT traversal for hosts behind firewalls.
+	ControlChannelEnabled bool
 }
 
 // DefaultServerConfig returns the default server configuration.
@@ -126,6 +131,9 @@ type Server struct {
 	hostAuthMiddleware *HostAuthMiddleware
 	heartbeat          *HeartbeatService
 	hostCredentials    *hostcredentials.HostCredentials
+
+	// Control channel
+	controlChannel *ControlChannelClient
 }
 
 // New creates a new Runtime Host API server.
@@ -318,6 +326,40 @@ func (s *Server) Start(ctx context.Context) error {
 		log.Printf("Heartbeat service started (interval: %s)", interval)
 	}
 
+	// Start control channel if enabled
+	if s.config.ControlChannelEnabled && s.config.HubEndpoint != "" && s.config.HostID != "" {
+		var secretKey []byte
+		if s.hostCredentials != nil {
+			var err error
+			secretKey, err = base64.StdEncoding.DecodeString(s.hostCredentials.SecretKey)
+			if err != nil {
+				log.Printf("Warning: failed to decode host secret key for control channel: %v", err)
+			}
+		}
+
+		ccConfig := ControlChannelConfig{
+			HubEndpoint:         s.config.HubEndpoint,
+			HostID:              s.config.HostID,
+			SecretKey:           secretKey,
+			Version:             s.version,
+			ReconnectInitial:    1 * time.Second,
+			ReconnectMax:        60 * time.Second,
+			ReconnectMultiplier: 2.0,
+			PingInterval:        30 * time.Second,
+			PongWait:            60 * time.Second,
+			WriteWait:           10 * time.Second,
+			Debug:               s.config.Debug,
+		}
+
+		s.controlChannel = NewControlChannelClient(ccConfig, s.Handler())
+		go func() {
+			if err := s.controlChannel.Connect(ctx); err != nil {
+				log.Printf("Control channel error: %v", err)
+			}
+		}()
+		log.Printf("Control channel connecting to Hub at %s", s.config.HubEndpoint)
+	}
+
 	errCh := make(chan error, 1)
 	go func() {
 		if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -339,9 +381,16 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	s.mu.RLock()
 	srv := s.httpServer
 	hb := s.heartbeat
+	cc := s.controlChannel
 	s.mu.RUnlock()
 
-	// Stop heartbeat service first
+	// Stop control channel first
+	if cc != nil {
+		log.Println("Stopping control channel...")
+		cc.Close()
+	}
+
+	// Stop heartbeat service
 	if hb != nil {
 		log.Println("Stopping heartbeat service...")
 		hb.Stop()
