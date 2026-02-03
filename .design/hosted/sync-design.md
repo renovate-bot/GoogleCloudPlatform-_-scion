@@ -1117,20 +1117,20 @@ All open questions have been resolved with the following decisions:
   - [ ] Keep existing handler logic
 - [ ] Add unit tests for `pkg/transfer`
 
-### Phase 1: Storage Path & Hub Endpoints (Day 2)
+### Phase 1: Storage Path & Hub Endpoints (Day 2) ✅
 
 **Goal:** Add workspace storage conventions and Hub API endpoints.
 
-- [ ] Add to `pkg/storage/storage.go`:
-  - [ ] `WorkspaceStoragePath(groveID, agentID string) string`
-  - [ ] `WorkspaceStorageURI(bucket, groveID, agentID string) string`
-- [ ] Create `pkg/hub/workspace_handlers.go`:
-  - [ ] `handleWorkspaceSyncFrom()` - `POST /api/v1/agents/{id}/workspace/sync-from`
-  - [ ] `handleWorkspaceSyncTo()` - `POST /api/v1/agents/{id}/workspace/sync-to`
-  - [ ] `handleWorkspaceSyncToFinalize()` - `POST /api/v1/agents/{id}/workspace/sync-to/finalize`
-  - [ ] `handleWorkspaceStatus()` - `GET /api/v1/agents/{id}/workspace`
-- [ ] Add workspace routes to Hub router in `pkg/hub/server.go`
-- [ ] Add request/response types using `transfer.FileInfo`
+- [x] Add to `pkg/storage/storage.go`:
+  - [x] `WorkspaceStoragePath(groveID, agentID string) string`
+  - [x] `WorkspaceStorageURI(bucket, groveID, agentID string) string`
+- [x] Create `pkg/hub/workspace_handlers.go`:
+  - [x] `handleWorkspaceSyncFrom()` - `POST /api/v1/agents/{id}/workspace/sync-from`
+  - [x] `handleWorkspaceSyncTo()` - `POST /api/v1/agents/{id}/workspace/sync-to`
+  - [x] `handleWorkspaceSyncToFinalize()` - `POST /api/v1/agents/{id}/workspace/sync-to/finalize`
+  - [x] `handleWorkspaceStatus()` - `GET /api/v1/agents/{id}/workspace`
+- [x] Add workspace routes to Hub router in `pkg/hub/server.go`
+- [x] Add request/response types using `transfer.FileInfo`
 
 ### Phase 2: Runtime Host Handlers (Day 3)
 
