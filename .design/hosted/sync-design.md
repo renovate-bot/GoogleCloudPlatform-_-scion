@@ -1166,25 +1166,25 @@ All open questions have been resolved with the following decisions:
   - [x] Add progress output
 - [x] Use `transfer.Client` for file operations
 
-### Phase 4: Testing & Polish (Day 5)
+### Phase 4: Testing & Polish (Day 5) ✅
 
 **Goal:** Validate end-to-end and update documentation.
 
-- [ ] Integration tests:
-  - [ ] `pkg/transfer` unit tests
-  - [ ] Hub workspace endpoint tests (mock storage)
-  - [ ] Runtime Host workspace handler tests
-  - [ ] CLI sync command tests (mock hubclient)
-- [ ] End-to-end test with real Hub/Runtime Host
-- [ ] CLI output formatting and progress display
-- [ ] Error handling and edge cases:
-  - [ ] Agent not running
-  - [ ] Storage unavailable
-  - [ ] Partial upload/download recovery
-- [ ] Update `milestone-walkthrough.md`:
-  - [ ] Mark Scenario 4 complete
-  - [ ] Update success criteria (7/7)
-- [ ] Update test setup commands in walkthrough
+- [x] Integration tests:
+  - [x] `pkg/transfer` unit tests
+  - [x] Hub workspace endpoint tests (mock storage)
+  - [x] Runtime Host workspace handler tests
+  - [x] CLI sync command tests (mock hubclient)
+- [x] End-to-end test with real Hub/Runtime Host
+- [x] CLI output formatting and progress display
+- [x] Error handling and edge cases:
+  - [x] Agent not running
+  - [x] Storage unavailable
+  - [x] Partial upload/download recovery
+- [x] Update `milestone-walkthrough.md`:
+  - [x] Mark Scenario 4 complete
+  - [x] Update success criteria (7/7)
+- [x] Update test setup commands in walkthrough
 
 ### Phase Diagram
 

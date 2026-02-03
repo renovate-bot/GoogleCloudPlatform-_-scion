@@ -272,3 +272,276 @@ func TestWorkspaceServiceAvailable(t *testing.T) {
 		t.Error("expected non-nil workspace service")
 	}
 }
+
+// Error handling tests
+
+func TestWorkspaceSyncFrom_NotFound(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": map[string]string{
+				"code":    "not_found",
+				"message": "Agent not found",
+			},
+		})
+	}))
+	defer server.Close()
+
+	client, _ := New(server.URL)
+	_, err := client.Workspace().SyncFrom(context.Background(), "nonexistent", nil)
+	if err == nil {
+		t.Fatal("expected error for 404 response")
+	}
+}
+
+func TestWorkspaceSyncFrom_Conflict(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": map[string]string{
+				"code":    "conflict",
+				"message": "Agent is not running",
+			},
+		})
+	}))
+	defer server.Close()
+
+	client, _ := New(server.URL)
+	_, err := client.Workspace().SyncFrom(context.Background(), "stopped-agent", nil)
+	if err == nil {
+		t.Fatal("expected error for 409 response")
+	}
+}
+
+func TestWorkspaceSyncTo_BadRequest(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": map[string]string{
+				"code":    "validation_error",
+				"message": "files list is required",
+			},
+		})
+	}))
+	defer server.Close()
+
+	client, _ := New(server.URL)
+	_, err := client.Workspace().SyncTo(context.Background(), "agent-123", []transfer.FileInfo{})
+	if err == nil {
+		t.Fatal("expected error for 400 response")
+	}
+}
+
+func TestWorkspaceSyncToFinalize_Unauthorized(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": map[string]string{
+				"code":    "unauthorized",
+				"message": "Invalid or missing authorization token",
+			},
+		})
+	}))
+	defer server.Close()
+
+	client, _ := New(server.URL)
+	manifest := &transfer.Manifest{Version: "1.0", Files: []transfer.FileInfo{}}
+	_, err := client.Workspace().FinalizeSyncTo(context.Background(), "agent-123", manifest)
+	if err == nil {
+		t.Fatal("expected error for 401 response")
+	}
+}
+
+func TestWorkspaceGetStatus_InternalServerError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": map[string]string{
+				"code":    "internal_error",
+				"message": "Database error",
+			},
+		})
+	}))
+	defer server.Close()
+
+	client, _ := New(server.URL)
+	_, err := client.Workspace().GetStatus(context.Background(), "agent-123")
+	if err == nil {
+		t.Fatal("expected error for 500 response")
+	}
+}
+
+func TestWorkspaceSyncFrom_InvalidJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{invalid json`))
+	}))
+	defer server.Close()
+
+	client, _ := New(server.URL)
+	_, err := client.Workspace().SyncFrom(context.Background(), "agent-123", nil)
+	if err == nil {
+		t.Fatal("expected error for invalid JSON response")
+	}
+}
+
+func TestWorkspaceSyncTo_InvalidJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`not json at all`))
+	}))
+	defer server.Close()
+
+	client, _ := New(server.URL)
+	files := []transfer.FileInfo{{Path: "test.txt", Size: 100, Hash: "sha256:abc"}}
+	_, err := client.Workspace().SyncTo(context.Background(), "agent-123", files)
+	if err == nil {
+		t.Fatal("expected error for invalid JSON response")
+	}
+}
+
+func TestWorkspaceGetStatus_GatewayTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusGatewayTimeout)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": map[string]string{
+				"code":    "gateway_timeout",
+				"message": "Runtime Host unreachable",
+			},
+		})
+	}))
+	defer server.Close()
+
+	client, _ := New(server.URL)
+	_, err := client.Workspace().GetStatus(context.Background(), "agent-123")
+	if err == nil {
+		t.Fatal("expected error for 504 response")
+	}
+}
+
+func TestWorkspaceSyncFrom_ContextCancelled(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Delay response to allow context cancellation
+		time.Sleep(100 * time.Millisecond)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client, _ := New(server.URL)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	_, err := client.Workspace().SyncFrom(ctx, "agent-123", nil)
+	if err == nil {
+		t.Fatal("expected error for cancelled context")
+	}
+}
+
+func TestWorkspaceSyncTo_Forbidden(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": map[string]string{
+				"code":    "forbidden",
+				"message": "Access denied to agent",
+			},
+		})
+	}))
+	defer server.Close()
+
+	client, _ := New(server.URL)
+	files := []transfer.FileInfo{{Path: "test.txt", Size: 100, Hash: "sha256:abc"}}
+	_, err := client.Workspace().SyncTo(context.Background(), "agent-123", files)
+	if err == nil {
+		t.Fatal("expected error for 403 response")
+	}
+}
+
+func TestWorkspaceSyncToFinalize_BadGateway(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": map[string]string{
+				"code":    "runtime_error",
+				"message": "Failed to apply workspace",
+			},
+		})
+	}))
+	defer server.Close()
+
+	client, _ := New(server.URL)
+	manifest := &transfer.Manifest{
+		Version: "1.0",
+		Files:   []transfer.FileInfo{{Path: "test.txt", Size: 100, Hash: "sha256:abc"}},
+	}
+	_, err := client.Workspace().FinalizeSyncTo(context.Background(), "agent-123", manifest)
+	if err == nil {
+		t.Fatal("expected error for 502 response")
+	}
+}
+
+func TestWorkspaceGetStatus_NoLastSync(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(WorkspaceStatusResponse{
+			AgentID:    "agent-new",
+			GroveID:    "grove-1",
+			StorageURI: "gs://bucket/workspaces/grove-1/agent-new/",
+			LastSync:   nil, // No sync yet
+		})
+	}))
+	defer server.Close()
+
+	client, _ := New(server.URL)
+	resp, err := client.Workspace().GetStatus(context.Background(), "agent-new")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.LastSync != nil {
+		t.Error("expected nil LastSync for new agent")
+	}
+	if resp.AgentID != "agent-new" {
+		t.Errorf("agent ID = %q, want %q", resp.AgentID, "agent-new")
+	}
+}
+
+func TestWorkspaceSyncFrom_EmptyManifest(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(SyncFromResponse{
+			Manifest: &transfer.Manifest{
+				Version:     "1.0",
+				ContentHash: "",
+				Files:       []transfer.FileInfo{}, // Empty workspace
+			},
+			DownloadURLs: []transfer.DownloadURLInfo{},
+			Expires:      time.Now().Add(15 * time.Minute),
+		})
+	}))
+	defer server.Close()
+
+	client, _ := New(server.URL)
+	resp, err := client.Workspace().SyncFrom(context.Background(), "empty-agent", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Manifest == nil {
+		t.Fatal("expected non-nil manifest")
+	}
+	if len(resp.Manifest.Files) != 0 {
+		t.Errorf("expected empty files list, got %d", len(resp.Manifest.Files))
+	}
+	if len(resp.DownloadURLs) != 0 {
+		t.Errorf("expected empty download URLs, got %d", len(resp.DownloadURLs))
+	}
+}

@@ -2,7 +2,7 @@
 
 **Created:** 2026-02-02
 **Updated:** 2026-02-03
-**Status:** Implementation In Progress
+**Status:** ✅ Milestone Complete
 **Goal:** Enable end-to-end manual integration testing of the hosted architecture
 
 ---
@@ -74,20 +74,26 @@ These scenarios should work with Hub server and Runtime Host running on differen
 | - Hub-initiated commands | ✅ | HTTP tunneling via WebSocket |
 | - NAT/firewall traversal | ✅ | Host-initiated connection |
 
-### 2.3 What's NOT Implemented (Blocking Scenarios)
+### 2.3 All Scenarios Complete ✅
 
-| Component | Status | Impact | Key Files |
-|-----------|--------|--------|-----------|
-| **Workspace Sync (Hosted)** | ❌ Not Implemented | Blocks Scenario 4 | `cmd/sync.go` |
-| - Sync workspace files to/from remote host | ❌ | | |
-| - rclone integration for workspace | ❌ | | |
+All blocking scenarios have been implemented. Workspace sync was the final piece.
 
-### 2.4 Current Behavior of Blocking Features
+| Component | Status | Key Files |
+|-----------|--------|-----------|
+| **Workspace Sync (Hosted)** | ✅ Complete | `cmd/sync.go`, `pkg/hub/workspace_handlers.go` |
+| - Sync workspace files to/from remote host | ✅ | `pkg/runtimehost/workspace_handlers.go` |
+| - rclone integration for workspace | ✅ | `pkg/gcp/storage.go` |
+| - Signed URL pattern (like templates) | ✅ | `pkg/hubclient/workspace.go` |
+| - Incremental sync via content hashing | ✅ | `pkg/transfer/` |
+
+### 2.4 Implementation Notes
 
 **Workspace Sync:**
-- `cmd/sync.go` exists for local sync (tar-based or mutagen)
-- No hosted mode implementation
-- The rclone library is already imported and used for templates (`pkg/gcp/storage.go`)
+- `cmd/sync.go` extended with hosted mode detection via `CheckHubAvailability()`
+- Uses the signed URL pattern (same as templates) for direct CLI ↔ GCS transfer
+- Hub coordinates sync, Runtime Host uploads/applies via rclone
+- Shared `pkg/transfer` package provides common file transfer functionality
+- Incremental sync via SHA-256 content hashing (skip unchanged files)
 
 ---
 
@@ -220,71 +226,57 @@ scion attach my-agent
 
 ---
 
-### Scenario 4: Synchronize Workspace to Local Machine ❌
+### Scenario 4: Synchronize Workspace to Local Machine ✅
 
-**Status:** Not implemented - **requires new implementation**
+**Status:** Fully implemented
 
-**What's Needed:**
-
-The rclone library is already imported and used for templates. Leverage it for workspace sync.
-
-**Proposed Design:**
-
-1. **Upload workspace to GCS from Runtime Host:**
-   ```go
-   // On Runtime Host after agent stops or on-demand
-   gcp.SyncToGCS(ctx, agentWorkspacePath, bucket, "workspaces/{groveId}/{agentId}/")
-   ```
-
-2. **Download workspace from GCS to CLI:**
-   ```go
-   // CLI command
-   gcp.SyncFromGCS(ctx, bucket, "workspaces/{groveId}/{agentId}/", localPath)
-   ```
-
-**CLI Command:**
+**CLI Commands:**
 ```bash
 # Sync workspace from remote agent to local
 scion sync from my-agent
 
 # Sync local changes to remote agent
 scion sync to my-agent
+
+# Preview what would be synced (dry-run)
+scion sync from my-agent --dry-run
+
+# Exclude patterns from sync
+scion sync to my-agent --exclude "*.log" --exclude "tmp/**"
 ```
 
-**Implementation:**
+**What Happens (Sync FROM):**
+1. CLI calls Hub API: `POST /api/v1/agents/{id}/workspace/sync-from`
+2. Hub tunnels request to Runtime Host via control channel
+3. Runtime Host uploads workspace to GCS using rclone
+4. Hub generates signed download URLs for each file
+5. CLI downloads files directly from GCS (incremental - skips unchanged)
 
-1. **Add Hub endpoint for sync metadata:**
-   ```
-   GET /api/v1/agents/{id}/workspace
-   Response: { syncUri: "gs://bucket/workspaces/...", lastSync: "..." }
-   ```
+**What Happens (Sync TO):**
+1. CLI scans local workspace and computes file hashes
+2. CLI calls Hub API: `POST /api/v1/agents/{id}/workspace/sync-to` with file list
+3. Hub checks which files already exist in storage (by hash)
+4. Hub returns signed upload URLs for new/changed files only
+5. CLI uploads files directly to GCS
+6. CLI calls Hub API: `POST /api/v1/agents/{id}/workspace/sync-to/finalize`
+7. Hub tunnels apply request to Runtime Host
+8. Runtime Host downloads from GCS and applies to container workspace
 
-2. **Runtime Host triggers upload:**
-   - On agent stop
-   - On explicit sync request from Hub
-   - Periodic sync for long-running agents
+**Key Implementation Files:**
+- `cmd/sync.go` - CLI sync command with hosted mode
+- `pkg/hub/workspace_handlers.go` - Hub workspace endpoints
+- `pkg/runtimehost/workspace_handlers.go` - Runtime Host handlers
+- `pkg/hubclient/workspace.go` - Hub client workspace service
+- `pkg/transfer/` - Shared file transfer package
 
-3. **CLI downloads:**
-   - Uses rclone to sync from GCS URI to local path
-   - Or receives tar archive over HTTP (simpler, less efficient)
+**Design Decisions:**
+- On-demand sync only (explicit command, not automatic)
+- Last-write-wins for conflict handling
+- Incremental sync via SHA-256 content hashing
+- 15-minute signed URL expiry (same as templates)
+- No file size limits (GCS handles large files natively)
 
-**Open Questions:**
-
-1. **Sync trigger:** When should workspace sync happen?
-   - On-demand only (explicit command)
-   - On agent stop (automatic)
-   - Periodic (background)
-
-2. **Conflict handling:** What if local and remote both have changes?
-   - Always prefer remote (current agent state)
-   - Merge with conflict markers
-   - Error and require explicit resolution
-
-3. **Large workspaces:** How to handle multi-GB workspaces?
-   - Incremental sync (rclone handles this)
-   - Exclude patterns (.git, node_modules, etc.)
-
-**Estimated Effort:** 1-2 days (basic implementation using rclone)
+**No Further Implementation Work Required.**
 
 ---
 
@@ -458,11 +450,11 @@ The milestone is complete when:
 2. ✅ Local template can be pushed to Hub (GCS)
 3. ✅ Agent can be started on remote Runtime Host using pushed template
 4. ✅ CLI can attach to remote agent and interact via tmux
-5. ⬜ Workspace can be synced from remote agent to local machine
+5. ✅ Workspace can be synced from remote agent to local machine
 6. ✅ Agent can be stopped via CLI
 7. ✅ Agent can be removed via CLI
 
-**6 of 7 scenarios complete.** Only workspace sync remains.
+**7 of 7 scenarios complete.** 🎉 Milestone achieved!
 
 All scenarios work with Hub and Runtime Host running as separate processes.
 

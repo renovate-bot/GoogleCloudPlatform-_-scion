@@ -36,13 +36,14 @@ func testWorkspaceServer(t *testing.T) (*Server, store.Store) {
 }
 
 // createTestGrove creates a grove for tests that need to create agents.
+// It uses groveID to generate unique slug and git remote to avoid unique constraint violations.
 func createTestGrove(t *testing.T, s store.Store, groveID string) {
 	t.Helper()
 	grove := &store.Grove{
 		ID:        groveID,
-		Slug:      "test-grove",
-		Name:      "Test Grove",
-		GitRemote: "https://github.com/test/repo",
+		Slug:      groveID, // Use groveID as slug to ensure uniqueness
+		Name:      "Test Grove " + groveID,
+		GitRemote: "https://github.com/test/" + groveID, // Unique git remote per grove
 		Created:   time.Now(),
 		Updated:   time.Now(),
 	}
@@ -383,5 +384,477 @@ func TestSyncToResponse_JSONSerialization(t *testing.T) {
 	}
 	if len(parsed.ExistingFiles) != 1 || parsed.ExistingFiles[0] != "README.md" {
 		t.Errorf("existing files = %v, want [README.md]", parsed.ExistingFiles)
+	}
+}
+
+func TestWorkspaceSyncFromHandler_StorageNotConfigured(t *testing.T) {
+	srv, s := testWorkspaceServer(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	// Use unique IDs for this test
+	groveID := "grove_nostor_syncfrom"
+	agentID := "agent_nostor_syncfrom"
+
+	// Create the grove first
+	createTestGrove(t, s, groveID)
+
+	// Create a running agent (no RuntimeHostID to avoid FK constraint)
+	agent := &store.Agent{
+		ID:           agentID,
+		AgentID:      "no-storage-agent",
+		Name:         "test-agent",
+		GroveID:      groveID,
+		Status:       store.AgentStatusRunning,
+		StateVersion: 1,
+		Created:      now,
+		Updated:      now,
+	}
+	if err := s.CreateAgent(ctx, agent); err != nil {
+		t.Fatalf("failed to create agent: %v", err)
+	}
+
+	// Server has no storage configured - test should return runtime error (502 Bad Gateway)
+	req := httptest.NewRequest("POST", "/api/v1/agents/"+agentID+"/workspace/sync-from", nil)
+	req.Header.Set("Authorization", "Bearer "+testWorkspaceDevToken)
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	// Should return 502 Bad Gateway because storage is not configured (RuntimeError)
+	if rec.Code != http.StatusBadGateway {
+		t.Errorf("sync-from without storage returned status %d, want %d; body: %s", rec.Code, http.StatusBadGateway, rec.Body.String())
+	}
+
+	// Verify error message mentions storage
+	body := rec.Body.String()
+	if !strings.Contains(body, "Storage not configured") {
+		t.Errorf("error message should mention storage not configured, got: %s", body)
+	}
+}
+
+func TestWorkspaceSyncToHandler_StorageNotConfigured(t *testing.T) {
+	srv, s := testWorkspaceServer(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	// Create the grove first
+	createTestGrove(t, s, "grove_syncto_no_storage")
+
+	agent := &store.Agent{
+		ID:           "agent_syncto_no_storage",
+		AgentID:      "sync-to-no-storage-agent",
+		Name:         "test-agent",
+		GroveID:      "grove_syncto_no_storage",
+		Status:       store.AgentStatusRunning,
+		StateVersion: 1,
+		Created:      now,
+		Updated:      now,
+	}
+	if err := s.CreateAgent(ctx, agent); err != nil {
+		t.Fatalf("failed to create agent: %v", err)
+	}
+
+	// Send request with files but no storage configured
+	body := `{"files": [{"path": "test.txt", "size": 100, "hash": "sha256:abc123"}]}`
+	req := httptest.NewRequest("POST", "/api/v1/agents/agent_syncto_no_storage/workspace/sync-to", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+testWorkspaceDevToken)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	// Should return 502 Bad Gateway because storage is not configured (RuntimeError)
+	if rec.Code != http.StatusBadGateway {
+		t.Errorf("sync-to without storage returned status %d, want %d; body: %s", rec.Code, http.StatusBadGateway, rec.Body.String())
+	}
+}
+
+func TestWorkspaceSyncToFinalizeHandler_StorageNotConfigured(t *testing.T) {
+	srv, s := testWorkspaceServer(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	// Create the grove first
+	createTestGrove(t, s, "grove_finalize_no_storage")
+
+	agent := &store.Agent{
+		ID:           "agent_finalize_no_storage",
+		AgentID:      "finalize-no-storage-agent",
+		Name:         "test-agent",
+		GroveID:      "grove_finalize_no_storage",
+		Status:       store.AgentStatusRunning,
+		StateVersion: 1,
+		Created:      now,
+		Updated:      now,
+	}
+	if err := s.CreateAgent(ctx, agent); err != nil {
+		t.Fatalf("failed to create agent: %v", err)
+	}
+
+	// Send request with manifest but no storage configured
+	body := `{"manifest": {"version": "1.0", "files": [{"path": "test.txt", "size": 100, "hash": "sha256:abc123"}]}}`
+	req := httptest.NewRequest("POST", "/api/v1/agents/agent_finalize_no_storage/workspace/sync-to/finalize", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+testWorkspaceDevToken)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	// Should return 502 Bad Gateway because storage is not configured (RuntimeError)
+	if rec.Code != http.StatusBadGateway {
+		t.Errorf("finalize without storage returned status %d, want %d; body: %s", rec.Code, http.StatusBadGateway, rec.Body.String())
+	}
+}
+
+func TestWorkspaceSyncToFinalizeHandler_AgentNotRunning(t *testing.T) {
+	srv, s := testWorkspaceServer(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	// Create the grove first
+	createTestGrove(t, s, "grove_finalize_stopped")
+
+	// Create a stopped agent
+	agent := &store.Agent{
+		ID:           "agent_finalize_stopped",
+		AgentID:      "finalize-stopped-agent",
+		Name:         "stopped-agent",
+		GroveID:      "grove_finalize_stopped",
+		Status:       store.AgentStatusStopped,
+		StateVersion: 1,
+		Created:      now,
+		Updated:      now,
+	}
+	if err := s.CreateAgent(ctx, agent); err != nil {
+		t.Fatalf("failed to create agent: %v", err)
+	}
+
+	body := `{"manifest": {"version": "1.0", "files": [{"path": "test.txt", "size": 100, "hash": "sha256:abc123"}]}}`
+	req := httptest.NewRequest("POST", "/api/v1/agents/agent_finalize_stopped/workspace/sync-to/finalize", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+testWorkspaceDevToken)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	// Should return 409 Conflict because agent is not running
+	if rec.Code != http.StatusConflict {
+		t.Errorf("finalize for stopped agent returned status %d, want %d; body: %s", rec.Code, http.StatusConflict, rec.Body.String())
+	}
+}
+
+func TestWorkspaceMethodNotAllowed(t *testing.T) {
+	srv, s := testWorkspaceServer(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	// Create the grove first
+	createTestGrove(t, s, "grove_method")
+
+	agent := &store.Agent{
+		ID:           "agent_method_test",
+		AgentID:      "method-test-agent",
+		Name:         "test-agent",
+		GroveID:      "grove_method",
+		Status:       store.AgentStatusRunning,
+		StateVersion: 1,
+		Created:      now,
+		Updated:      now,
+	}
+	if err := s.CreateAgent(ctx, agent); err != nil {
+		t.Fatalf("failed to create agent: %v", err)
+	}
+
+	tests := []struct {
+		name           string
+		method         string
+		url            string
+		expectedStatus int
+	}{
+		// workspace status - GET only
+		{"workspace status with POST", "POST", "/api/v1/agents/agent_method_test/workspace", http.StatusMethodNotAllowed},
+		{"workspace status with PUT", "PUT", "/api/v1/agents/agent_method_test/workspace", http.StatusMethodNotAllowed},
+		{"workspace status with DELETE", "DELETE", "/api/v1/agents/agent_method_test/workspace", http.StatusMethodNotAllowed},
+
+		// sync-from - POST only
+		{"sync-from with GET", "GET", "/api/v1/agents/agent_method_test/workspace/sync-from", http.StatusMethodNotAllowed},
+		{"sync-from with PUT", "PUT", "/api/v1/agents/agent_method_test/workspace/sync-from", http.StatusMethodNotAllowed},
+		{"sync-from with DELETE", "DELETE", "/api/v1/agents/agent_method_test/workspace/sync-from", http.StatusMethodNotAllowed},
+
+		// sync-to - POST only
+		{"sync-to with GET", "GET", "/api/v1/agents/agent_method_test/workspace/sync-to", http.StatusMethodNotAllowed},
+		{"sync-to with PUT", "PUT", "/api/v1/agents/agent_method_test/workspace/sync-to", http.StatusMethodNotAllowed},
+		{"sync-to with DELETE", "DELETE", "/api/v1/agents/agent_method_test/workspace/sync-to", http.StatusMethodNotAllowed},
+
+		// sync-to/finalize - POST only
+		{"finalize with GET", "GET", "/api/v1/agents/agent_method_test/workspace/sync-to/finalize", http.StatusMethodNotAllowed},
+		{"finalize with PUT", "PUT", "/api/v1/agents/agent_method_test/workspace/sync-to/finalize", http.StatusMethodNotAllowed},
+		{"finalize with DELETE", "DELETE", "/api/v1/agents/agent_method_test/workspace/sync-to/finalize", http.StatusMethodNotAllowed},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(tt.method, tt.url, nil)
+			req.Header.Set("Authorization", "Bearer "+testWorkspaceDevToken)
+			rec := httptest.NewRecorder()
+
+			srv.Handler().ServeHTTP(rec, req)
+
+			if rec.Code != tt.expectedStatus {
+				t.Errorf("%s returned status %d, want %d", tt.name, rec.Code, tt.expectedStatus)
+			}
+		})
+	}
+}
+
+func TestWorkspaceSyncToHandler_InvalidJSON(t *testing.T) {
+	srv, s := testWorkspaceServer(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	// Create the grove first
+	createTestGrove(t, s, "grove_invalid_json")
+
+	agent := &store.Agent{
+		ID:           "agent_invalid_json",
+		AgentID:      "invalid-json-agent",
+		Name:         "test-agent",
+		GroveID:      "grove_invalid_json",
+		Status:       store.AgentStatusRunning,
+		StateVersion: 1,
+		Created:      now,
+		Updated:      now,
+	}
+	if err := s.CreateAgent(ctx, agent); err != nil {
+		t.Fatalf("failed to create agent: %v", err)
+	}
+
+	// Send invalid JSON
+	body := `{invalid json`
+	req := httptest.NewRequest("POST", "/api/v1/agents/agent_invalid_json/workspace/sync-to", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+testWorkspaceDevToken)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	// Should return 400 Bad Request
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("sync-to with invalid JSON returned status %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestWorkspaceSyncToFinalizeHandler_InvalidJSON(t *testing.T) {
+	srv, s := testWorkspaceServer(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	// Create the grove first
+	createTestGrove(t, s, "grove_finalize_invalid")
+
+	agent := &store.Agent{
+		ID:           "agent_finalize_invalid",
+		AgentID:      "finalize-invalid-agent",
+		Name:         "test-agent",
+		GroveID:      "grove_finalize_invalid",
+		Status:       store.AgentStatusRunning,
+		StateVersion: 1,
+		Created:      now,
+		Updated:      now,
+	}
+	if err := s.CreateAgent(ctx, agent); err != nil {
+		t.Fatalf("failed to create agent: %v", err)
+	}
+
+	// Send invalid JSON
+	body := `{not valid`
+	req := httptest.NewRequest("POST", "/api/v1/agents/agent_finalize_invalid/workspace/sync-to/finalize", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+testWorkspaceDevToken)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	// Should return 400 Bad Request
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("finalize with invalid JSON returned status %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestSyncToFinalizeResponse_JSONSerialization(t *testing.T) {
+	resp := SyncToFinalizeResponse{
+		Applied:          true,
+		ContentHash:      "sha256:abc123",
+		FilesApplied:     5,
+		BytesTransferred: 10240,
+	}
+
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("failed to marshal SyncToFinalizeResponse: %v", err)
+	}
+
+	var parsed SyncToFinalizeResponse
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("failed to unmarshal SyncToFinalizeResponse: %v", err)
+	}
+
+	if !parsed.Applied {
+		t.Error("expected applied=true")
+	}
+	if parsed.ContentHash != "sha256:abc123" {
+		t.Errorf("content hash = %q, want %q", parsed.ContentHash, "sha256:abc123")
+	}
+	if parsed.FilesApplied != 5 {
+		t.Errorf("files applied = %d, want 5", parsed.FilesApplied)
+	}
+	if parsed.BytesTransferred != 10240 {
+		t.Errorf("bytes transferred = %d, want 10240", parsed.BytesTransferred)
+	}
+}
+
+func TestWorkspaceStatusResponse_JSONSerialization(t *testing.T) {
+	now := time.Now()
+	resp := WorkspaceStatusResponse{
+		AgentID:    "agent-123",
+		GroveID:    "grove-456",
+		StorageURI: "gs://bucket/workspaces/grove-456/agent-123/",
+		LastSync: &WorkspaceSyncInfo{
+			Direction:   "from",
+			Timestamp:   now,
+			ContentHash: "sha256:xyz789",
+			FileCount:   10,
+			TotalSize:   102400,
+		},
+	}
+
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("failed to marshal WorkspaceStatusResponse: %v", err)
+	}
+
+	var parsed WorkspaceStatusResponse
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("failed to unmarshal WorkspaceStatusResponse: %v", err)
+	}
+
+	if parsed.AgentID != "agent-123" {
+		t.Errorf("agent ID = %q, want %q", parsed.AgentID, "agent-123")
+	}
+	if parsed.GroveID != "grove-456" {
+		t.Errorf("grove ID = %q, want %q", parsed.GroveID, "grove-456")
+	}
+	if parsed.StorageURI != "gs://bucket/workspaces/grove-456/agent-123/" {
+		t.Errorf("storage URI = %q, want %q", parsed.StorageURI, "gs://bucket/workspaces/grove-456/agent-123/")
+	}
+	if parsed.LastSync == nil {
+		t.Fatal("expected non-nil LastSync")
+	}
+	if parsed.LastSync.Direction != "from" {
+		t.Errorf("direction = %q, want %q", parsed.LastSync.Direction, "from")
+	}
+	if parsed.LastSync.FileCount != 10 {
+		t.Errorf("file count = %d, want 10", parsed.LastSync.FileCount)
+	}
+}
+
+func TestWorkspaceUnknownAction(t *testing.T) {
+	srv, s := testWorkspaceServer(t)
+	ctx := context.Background()
+	now := time.Now()
+
+	// Create the grove first
+	createTestGrove(t, s, "grove_unknown")
+
+	agent := &store.Agent{
+		ID:           "agent_unknown_action",
+		AgentID:      "unknown-action-agent",
+		Name:         "test-agent",
+		GroveID:      "grove_unknown",
+		Status:       store.AgentStatusRunning,
+		StateVersion: 1,
+		Created:      now,
+		Updated:      now,
+	}
+	if err := s.CreateAgent(ctx, agent); err != nil {
+		t.Fatalf("failed to create agent: %v", err)
+	}
+
+	// Request with unknown workspace action
+	req := httptest.NewRequest("POST", "/api/v1/agents/agent_unknown_action/workspace/unknown-action", nil)
+	req.Header.Set("Authorization", "Bearer "+testWorkspaceDevToken)
+	rec := httptest.NewRecorder()
+
+	srv.Handler().ServeHTTP(rec, req)
+
+	// Should return 404 Not Found
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("unknown workspace action returned status %d, want %d", rec.Code, http.StatusNotFound)
+	}
+}
+
+func TestHostError_Error(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      *hostError
+		expected string
+	}{
+		{
+			name:     "with hostID",
+			err:      &hostError{hostID: "host-123", msg: "connection failed"},
+			expected: "host host-123: connection failed",
+		},
+		{
+			name:     "without hostID",
+			err:      &hostError{statusCode: 500, msg: "internal error"},
+			expected: "internal error",
+		},
+		{
+			name:     "empty error",
+			err:      &hostError{},
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.err.Error()
+			if result != tt.expected {
+				t.Errorf("hostError.Error() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestErrHostNotConnected(t *testing.T) {
+	err := errHostNotConnected("host-abc")
+	if err == nil {
+		t.Fatal("expected non-nil error")
+	}
+
+	expected := "host host-abc: host not connected via control channel"
+	if err.Error() != expected {
+		t.Errorf("error message = %q, want %q", err.Error(), expected)
+	}
+}
+
+func TestErrRuntimeHostError(t *testing.T) {
+	err := errRuntimeHostError(503, "service unavailable")
+	if err == nil {
+		t.Fatal("expected non-nil error")
+	}
+
+	expected := "service unavailable"
+	if err.Error() != expected {
+		t.Errorf("error message = %q, want %q", err.Error(), expected)
+	}
+
+	hostErr, ok := err.(*hostError)
+	if !ok {
+		t.Fatal("expected *hostError type")
+	}
+	if hostErr.statusCode != 503 {
+		t.Errorf("status code = %d, want 503", hostErr.statusCode)
 	}
 }
