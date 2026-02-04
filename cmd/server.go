@@ -301,6 +301,7 @@ func runServerStart(cmd *cobra.Command, args []string) error {
 			Debug:              enableDebug,
 			AuthorizedDomains:  cfg.Auth.AuthorizedDomains,
 			HubEndpoint:        cfg.Hub.Endpoint,
+			HostAuthConfig:     hub.DefaultHostAuthConfig(), // Enable host HMAC authentication
 			OAuthConfig: hub.OAuthConfig{
 				Web: hub.OAuthClientConfig{
 					Google: hub.OAuthProviderConfig{
