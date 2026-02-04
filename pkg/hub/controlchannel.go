@@ -269,6 +269,13 @@ func (m *ControlChannelManager) handleMessage(hc *HostConnection, data []byte) e
 	}
 
 	switch env.Type {
+	case wsprotocol.TypeConnect:
+		// Client sent connect message after we already sent connected.
+		// This is expected - just acknowledge we received it.
+		if m.config.Debug {
+			log.Printf("[Hub:ControlChannel] Received connect message from host %s (already connected)", hc.hostID)
+		}
+		return nil
 	case wsprotocol.TypeResponse:
 		return m.handleResponse(hc, data)
 	case wsprotocol.TypeStream:
