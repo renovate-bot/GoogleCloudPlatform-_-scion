@@ -8,7 +8,7 @@ import (
 )
 
 // handleBrokersEndpoint handles POST /api/v1/brokers.
-// Creates a new host registration with join token.
+// Creates a new broker registration with join token.
 // Requires admin authentication.
 func (s *Server) handleBrokersEndpoint(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -18,12 +18,12 @@ func (s *Server) handleBrokersEndpoint(w http.ResponseWriter, r *http.Request) {
 	s.createBrokerRegistration(w, r)
 }
 
-// createBrokerRegistration creates a new host with join token.
+// createBrokerRegistration creates a new broker with join token.
 func (s *Server) createBrokerRegistration(w http.ResponseWriter, r *http.Request) {
-	// Check if host auth service is available
+	// Check if broker auth service is available
 	if s.brokerAuthService == nil {
 		writeError(w, http.StatusServiceUnavailable, ErrCodeUnavailable,
-			"host authentication service not configured", nil)
+			"broker authentication service not configured", nil)
 		return
 	}
 
@@ -52,7 +52,7 @@ func (s *Server) createBrokerRegistration(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Create the host registration
+	// Create the broker registration
 	resp, err := s.brokerAuthService.CreateBrokerRegistration(r.Context(), req, user.ID())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, ErrCodeInternalError,
@@ -67,7 +67,7 @@ func (s *Server) createBrokerRegistration(w http.ResponseWriter, r *http.Request
 }
 
 // handleBrokerJoin handles POST /api/v1/brokers/join.
-// Completes host registration with join token exchange.
+// Completes broker registration with join token exchange.
 // This is an unauthenticated endpoint - the join token serves as authentication.
 func (s *Server) handleBrokerJoin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -75,10 +75,10 @@ func (s *Server) handleBrokerJoin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if host auth service is available
+	// Check if broker auth service is available
 	if s.brokerAuthService == nil {
 		writeError(w, http.StatusServiceUnavailable, ErrCodeUnavailable,
-			"host authentication service not configured", nil)
+			"broker authentication service not configured", nil)
 		return
 	}
 
@@ -123,7 +123,7 @@ func (s *Server) handleBrokerJoin(w http.ResponseWriter, r *http.Request) {
 		// Determine error type and return appropriate response
 		errMsg := err.Error()
 		switch {
-		case errMsg == "invalid join token" || errMsg == "join token does not match host":
+		case errMsg == "invalid join token" || errMsg == "join token does not match broker":
 			writeError(w, http.StatusUnauthorized, ErrCodeInvalidJoinToken, errMsg, nil)
 		case errMsg == "join token has expired":
 			writeError(w, http.StatusUnauthorized, ErrCodeExpiredJoinToken, errMsg, nil)
@@ -142,12 +142,12 @@ func (s *Server) handleBrokerJoin(w http.ResponseWriter, r *http.Request) {
 
 // handleBrokerByIDRoutes handles routes under /api/v1/brokers/{id}/...
 func (s *Server) handleBrokerByIDRoutes(w http.ResponseWriter, r *http.Request) {
-	// Extract host ID and action from path: /api/v1/brokers/{id}/{action}
+	// Extract broker ID and action from path: /api/v1/brokers/{id}/{action}
 	path := strings.TrimPrefix(r.URL.Path, "/api/v1/brokers/")
 	parts := strings.SplitN(path, "/", 2)
 
 	if len(parts) == 0 || parts[0] == "" {
-		NotFound(w, "host")
+		NotFound(w, "broker")
 		return
 	}
 
@@ -161,27 +161,27 @@ func (s *Server) handleBrokerByIDRoutes(w http.ResponseWriter, r *http.Request) 
 	case "rotate-secret":
 		s.handleBrokerRotateSecret(w, r, brokerID)
 	default:
-		NotFound(w, "host action")
+		NotFound(w, "broker action")
 	}
 }
 
 // handleBrokerRotateSecret handles POST /api/v1/brokers/{id}/rotate-secret.
-// Rotates the HMAC secret for a host.
-// Requires admin authentication or host self-rotation.
+// Rotates the HMAC secret for a broker.
+// Requires admin authentication or broker self-rotation.
 func (s *Server) handleBrokerRotateSecret(w http.ResponseWriter, r *http.Request, brokerID string) {
 	if r.Method != http.MethodPost {
 		MethodNotAllowed(w)
 		return
 	}
 
-	// Check if host auth service is available
+	// Check if broker auth service is available
 	if s.brokerAuthService == nil {
 		writeError(w, http.StatusServiceUnavailable, ErrCodeUnavailable,
-			"host authentication service not configured", nil)
+			"broker authentication service not configured", nil)
 		return
 	}
 
-	// Check authorization - either admin user or the host itself
+	// Check authorization - either admin user or the broker itself
 	user := GetUserIdentityFromContext(r.Context())
 	broker := GetBrokerIdentityFromContext(r.Context())
 

@@ -9,11 +9,11 @@ import (
 
 // RuntimeBrokerService handles runtime broker operations.
 type RuntimeBrokerService interface {
-	// Create creates a new host registration and returns a join token.
+	// Create creates a new broker registration and returns a join token.
 	// The join token must be used with Join() to complete registration.
 	Create(ctx context.Context, req *CreateBrokerRequest) (*CreateBrokerResponse, error)
 
-	// Join completes host registration using a join token.
+	// Join completes broker registration using a join token.
 	// Returns the HMAC secret key for future authentication.
 	Join(ctx context.Context, req *JoinBrokerRequest) (*JoinBrokerResponse, error)
 
@@ -23,16 +23,16 @@ type RuntimeBrokerService interface {
 	// Get returns a single runtime broker by ID.
 	Get(ctx context.Context, brokerID string) (*RuntimeBroker, error)
 
-	// Update updates host metadata.
+	// Update updates broker metadata.
 	Update(ctx context.Context, brokerID string, req *UpdateBrokerRequest) (*RuntimeBroker, error)
 
-	// Delete removes a host from all groves.
+	// Delete removes a broker from all groves.
 	Delete(ctx context.Context, brokerID string) error
 
-	// ListGroves returns groves this host contributes to.
+	// ListGroves returns groves this broker contributes to.
 	ListGroves(ctx context.Context, brokerID string) (*ListBrokerGrovesResponse, error)
 
-	// Heartbeat sends a heartbeat for a host.
+	// Heartbeat sends a heartbeat for a broker.
 	Heartbeat(ctx context.Context, brokerID string, status *BrokerHeartbeat) error
 }
 
@@ -62,7 +62,7 @@ type UpdateBrokerRequest struct {
 	Annotations map[string]string `json:"annotations,omitempty"`
 }
 
-// ListBrokerGrovesResponse is the response from listing host groves.
+// ListBrokerGrovesResponse is the response from listing broker groves.
 type ListBrokerGrovesResponse struct {
 	Groves []BrokerGroveInfo `json:"groves"`
 }
@@ -87,21 +87,21 @@ type AgentHeartbeat struct {
 	ContainerStatus string `json:"containerStatus,omitempty"`
 }
 
-// CreateBrokerRequest is the request to create a new host registration.
+// CreateBrokerRequest is the request to create a new broker registration.
 type CreateBrokerRequest struct {
 	Name         string            `json:"name"`
 	Capabilities []string          `json:"capabilities,omitempty"`
 	Labels       map[string]string `json:"labels,omitempty"`
 }
 
-// CreateBrokerResponse is returned when creating a new host.
+// CreateBrokerResponse is returned when creating a new broker.
 type CreateBrokerResponse struct {
 	BrokerID string `json:"brokerId"`
 	JoinToken string `json:"joinToken"`
 	ExpiresAt string `json:"expiresAt"`
 }
 
-// JoinBrokerRequest is the request to complete host registration.
+// JoinBrokerRequest is the request to complete broker registration.
 type JoinBrokerRequest struct {
 	BrokerID string   `json:"brokerId"`
 	JoinToken    string   `json:"joinToken"`
@@ -110,14 +110,14 @@ type JoinBrokerRequest struct {
 	Capabilities []string `json:"capabilities,omitempty"`
 }
 
-// JoinBrokerResponse is returned after completing host registration.
+// JoinBrokerResponse is returned after completing broker registration.
 type JoinBrokerResponse struct {
 	SecretKey   string `json:"secretKey"` // Base64-encoded HMAC secret
 	HubEndpoint string `json:"hubEndpoint"`
 	BrokerID string `json:"brokerId"`
 }
 
-// Create creates a new host registration and returns a join token.
+// Create creates a new broker registration and returns a join token.
 func (s *runtimeBrokerService) Create(ctx context.Context, req *CreateBrokerRequest) (*CreateBrokerResponse, error) {
 	resp, err := s.c.transport.Post(ctx, "/api/v1/brokers", req, nil)
 	if err != nil {
@@ -126,7 +126,7 @@ func (s *runtimeBrokerService) Create(ctx context.Context, req *CreateBrokerRequ
 	return apiclient.DecodeResponse[CreateBrokerResponse](resp)
 }
 
-// Join completes host registration using a join token.
+// Join completes broker registration using a join token.
 func (s *runtimeBrokerService) Join(ctx context.Context, req *JoinBrokerRequest) (*JoinBrokerResponse, error) {
 	resp, err := s.c.transport.Post(ctx, "/api/v1/brokers/join", req, nil)
 	if err != nil {
@@ -185,7 +185,7 @@ func (s *runtimeBrokerService) Get(ctx context.Context, brokerID string) (*Runti
 	return apiclient.DecodeResponse[RuntimeBroker](resp)
 }
 
-// Update updates host metadata.
+// Update updates broker metadata.
 func (s *runtimeBrokerService) Update(ctx context.Context, brokerID string, req *UpdateBrokerRequest) (*RuntimeBroker, error) {
 	resp, err := s.c.transport.Patch(ctx, "/api/v1/runtime-brokers/"+brokerID, req, nil)
 	if err != nil {
@@ -194,7 +194,7 @@ func (s *runtimeBrokerService) Update(ctx context.Context, brokerID string, req 
 	return apiclient.DecodeResponse[RuntimeBroker](resp)
 }
 
-// Delete removes a host from all groves.
+// Delete removes a broker from all groves.
 func (s *runtimeBrokerService) Delete(ctx context.Context, brokerID string) error {
 	resp, err := s.c.transport.Delete(ctx, "/api/v1/runtime-brokers/"+brokerID, nil)
 	if err != nil {
@@ -203,7 +203,7 @@ func (s *runtimeBrokerService) Delete(ctx context.Context, brokerID string) erro
 	return apiclient.CheckResponse(resp)
 }
 
-// ListGroves returns groves this host contributes to.
+// ListGroves returns groves this broker contributes to.
 func (s *runtimeBrokerService) ListGroves(ctx context.Context, brokerID string) (*ListBrokerGrovesResponse, error) {
 	resp, err := s.c.transport.Get(ctx, "/api/v1/runtime-brokers/"+brokerID+"/groves", nil)
 	if err != nil {
@@ -212,7 +212,7 @@ func (s *runtimeBrokerService) ListGroves(ctx context.Context, brokerID string) 
 	return apiclient.DecodeResponse[ListBrokerGrovesResponse](resp)
 }
 
-// Heartbeat sends a heartbeat for a host.
+// Heartbeat sends a heartbeat for a broker.
 func (s *runtimeBrokerService) Heartbeat(ctx context.Context, brokerID string, status *BrokerHeartbeat) error {
 	resp, err := s.c.transport.Post(ctx, "/api/v1/runtime-brokers/"+brokerID+"/heartbeat", status, nil)
 	if err != nil {

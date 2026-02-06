@@ -67,7 +67,7 @@ type ServerConfig struct {
 	AdminEmails []string
 	// BrokerAuthConfig holds configuration for Runtime Broker HMAC authentication.
 	BrokerAuthConfig BrokerAuthConfig
-	// HubEndpoint is the public endpoint URL for this Hub (used in host join responses).
+	// HubEndpoint is the public endpoint URL for this Hub (used in broker join responses).
 	HubEndpoint string
 }
 
@@ -84,7 +84,7 @@ func DefaultServerConfig() ServerConfig {
 		CORSAllowedHeaders: []string{
 			"Authorization", "Content-Type",
 			"X-Scion-Broker-Token", "X-Scion-Agent-Token", "X-API-Key",
-			// Host HMAC authentication headers
+			// Broker HMAC authentication headers
 			"X-Scion-Broker-ID", "X-Scion-Timestamp", "X-Scion-Nonce",
 			"X-Scion-Signature", "X-Scion-Signed-Headers",
 		},
@@ -94,7 +94,7 @@ func DefaultServerConfig() ServerConfig {
 }
 
 // AgentDispatcher is the interface for dispatching agent operations to a runtime broker.
-// Implementations may be local (co-located hub+host) or remote (HTTP-based).
+// Implementations may be local (co-located hub+broker) or remote (HTTP-based).
 type AgentDispatcher interface {
 	// DispatchAgentCreate creates and starts an agent on the runtime broker.
 	// Returns the updated agent info after creation/start.
@@ -160,7 +160,7 @@ type RemoteCreateAgentRequest struct {
 	HubEndpoint string             `json:"hubEndpoint,omitempty"`
 	AgentToken  string             `json:"agentToken,omitempty"`
 	// GrovePath is the local filesystem path to the grove on the target runtime broker.
-	// This is looked up from the grove contributor record for the target host.
+	// This is looked up from the grove contributor record for the target broker.
 	GrovePath string `json:"grovePath,omitempty"`
 }
 
@@ -214,9 +214,9 @@ type Server struct {
 	apiKeyService     *APIKeyService      // API key service
 	oauthService      *OAuthService       // OAuth service for CLI authentication
 	authConfig        AuthConfig          // Unified auth configuration
-	brokerAuthService   *BrokerAuthService    // Host HMAC authentication service
+	brokerAuthService   *BrokerAuthService    // Broker HMAC authentication service
 	auditLogger       AuditLogger         // Audit logger for security events
-	metrics           MetricsRecorder     // Metrics recorder for host auth
+	metrics           MetricsRecorder     // Metrics recorder for broker auth
 	controlChannel    *ControlChannelManager // WebSocket control channel for runtime brokers
 }
 
@@ -277,12 +277,12 @@ func New(cfg ServerConfig, s store.Store) *Server {
 		slog.Info("Authorized domains", "domains", strings.Join(cfg.AuthorizedDomains, ", "))
 	}
 
-	// Initialize host auth service if enabled
+	// Initialize broker auth service if enabled
 	if cfg.BrokerAuthConfig.Enabled {
 		srv.brokerAuthService = NewBrokerAuthService(cfg.BrokerAuthConfig, s)
 		srv.auditLogger = NewLogAuditLogger("[Hub Audit]", cfg.Debug)
 		srv.metrics = NewBrokerAuthMetrics()
-		slog.Info("Host HMAC authentication enabled")
+		slog.Info("Broker HMAC authentication enabled")
 	}
 
 	// Initialize control channel manager
@@ -407,7 +407,7 @@ func (s *Server) GetAPIKeyService() *APIKeyService {
 	return s.apiKeyService
 }
 
-// GetBrokerAuthService returns the host authentication service.
+// GetBrokerAuthService returns the broker authentication service.
 func (s *Server) GetBrokerAuthService() *BrokerAuthService {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -450,7 +450,7 @@ func (s *Server) GetControlChannelManager() *ControlChannelManager {
 }
 
 // CreateAuthenticatedDispatcher creates an HTTPAgentDispatcher with authenticated
-// host communication. This dispatcher signs outgoing requests to Runtime Brokers
+// broker communication. This dispatcher signs outgoing requests to Runtime Brokers
 // using HMAC authentication based on shared secrets stored in the database.
 // It also supports control channel fallback for NAT traversal.
 func (s *Server) CreateAuthenticatedDispatcher() *HTTPAgentDispatcher {
@@ -617,7 +617,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/v1/policies", s.handlePolicies)
 	s.mux.HandleFunc("/api/v1/policies/", s.handlePolicyRoutes)
 
-	// Host registration endpoints (Runtime Broker HMAC authentication)
+	// Broker registration endpoints (Runtime Broker HMAC authentication)
 	s.mux.HandleFunc("/api/v1/brokers", s.handleBrokersEndpoint)
 	s.mux.HandleFunc("/api/v1/brokers/join", s.handleBrokerJoin)
 	s.mux.HandleFunc("/api/v1/brokers/", s.handleBrokerByIDRoutes)
@@ -850,17 +850,17 @@ func (s *Server) handleRuntimeBrokerConnect(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Get host identity from context (set by BrokerAuthMiddleware)
+	// Get broker identity from context (set by BrokerAuthMiddleware)
 	broker := GetBrokerIdentityFromContext(r.Context())
 	if broker == nil {
-		// Try to get host ID from header if not authenticated yet
+		// Try to get broker ID from header if not authenticated yet
 		brokerID := r.Header.Get("X-Scion-Broker-ID")
 		if brokerID == "" {
 			writeError(w, 401, ErrCodeUnauthorized, "Broker authentication required", nil)
 			return
 		}
 
-		// Validate host exists and is authorized
+		// Validate broker exists and is authorized
 		if s.brokerAuthService == nil {
 			writeError(w, 401, ErrCodeUnauthorized, "Broker authentication not enabled", nil)
 			return
@@ -869,22 +869,22 @@ func (s *Server) handleRuntimeBrokerConnect(w http.ResponseWriter, r *http.Reque
 		// For WebSocket, we need to verify HMAC on the upgrade request
 		_, err := s.brokerAuthService.ValidateBrokerSignature(r.Context(), r)
 		if err != nil {
-			slog.Error("HMAC validation failed for host", "brokerID", brokerID, "error", err)
+			slog.Error("HMAC validation failed for broker", "brokerID", brokerID, "error", err)
 			writeError(w, 401, ErrCodeBrokerAuthFailed, "Invalid broker signature", nil)
 			return
 		}
 
-		// Use the host ID from header
+		// Use the broker ID from header
 		if err := s.controlChannel.HandleUpgrade(w, r, brokerID); err != nil {
-			slog.Error("Upgrade failed for host", "brokerID", brokerID, "error", err)
+			slog.Error("Upgrade failed for broker", "brokerID", brokerID, "error", err)
 			// Error already written by upgrader
 		}
 		return
 	}
 
-	// Use authenticated host identity
+	// Use authenticated broker identity
 	if err := s.controlChannel.HandleUpgrade(w, r, broker.ID()); err != nil {
-		slog.Error("Upgrade failed for host", "brokerID", broker.ID(), "error", err)
+		slog.Error("Upgrade failed for broker", "brokerID", broker.ID(), "error", err)
 		// Error already written by upgrader
 	}
 }

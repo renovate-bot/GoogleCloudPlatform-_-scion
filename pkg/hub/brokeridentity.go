@@ -16,13 +16,13 @@ type brokerIdentityImpl struct {
 	brokerID string
 }
 
-// ID returns the host ID.
+// ID returns the broker ID.
 func (h *brokerIdentityImpl) ID() string { return h.brokerID }
 
-// Type returns the identity type ("host").
-func (h *brokerIdentityImpl) Type() string { return "host" }
+// Type returns the identity type ("broker").
+func (h *brokerIdentityImpl) Type() string { return "broker" }
 
-// HostID returns the host ID.
+// BrokerID returns the broker ID.
 func (h *brokerIdentityImpl) BrokerID() string { return h.brokerID }
 
 // NewBrokerIdentity creates a new BrokerIdentity.

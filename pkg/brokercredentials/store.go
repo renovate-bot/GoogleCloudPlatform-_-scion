@@ -31,13 +31,13 @@ var (
 
 // BrokerCredentials contains the credentials for a Runtime Broker.
 type BrokerCredentials struct {
-	// HostID is the unique identifier for this host.
+	// BrokerID is the unique identifier for this broker.
 	BrokerID string `json:"brokerId"`
 	// SecretKey is the base64-encoded shared secret for HMAC authentication.
 	SecretKey string `json:"secretKey"`
 	// HubEndpoint is the URL of the Hub API.
 	HubEndpoint string `json:"hubEndpoint"`
-	// RegisteredAt is when this host was registered with the Hub.
+	// RegisteredAt is when this broker was registered with the Hub.
 	RegisteredAt time.Time `json:"registeredAt"`
 }
 
@@ -175,7 +175,7 @@ func (s *Store) GetSecretKey() ([]byte, error) {
 
 // SaveFromJoinResponse creates and saves credentials from a join response.
 // This is a convenience method for the common use case of saving credentials
-// immediately after completing a host join.
+// immediately after completing a broker join.
 func (s *Store) SaveFromJoinResponse(brokerID, secretKey, hubEndpoint string) error {
 	creds := &BrokerCredentials{
 		BrokerID:     brokerID,

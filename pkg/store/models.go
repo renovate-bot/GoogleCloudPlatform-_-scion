@@ -90,7 +90,7 @@ type Grove struct {
 
 	// Runtime broker configuration
 	// DefaultRuntimeBrokerID is the runtime broker used when creating agents without
-	// an explicit runtimeBrokerId. Set to the first host that registers with this grove.
+	// an explicit runtimeBrokerId. Set to the first broker that registers with this grove.
 	DefaultRuntimeBrokerID string `json:"defaultRuntimeBrokerId,omitempty"`
 
 	// Metadata (stored as JSON)
@@ -120,7 +120,7 @@ type RuntimeBroker struct {
 
 	// Configuration
 	Mode    string `json:"mode"`    // connected, read-only
-	Version string `json:"version"` // Scion host agent version
+	Version string `json:"version"` // Scion broker agent version
 
 	// Status
 	Status          string    `json:"status"`          // online, offline, degraded
@@ -166,7 +166,7 @@ type GroveContributor struct {
 	GroveID   string    `json:"groveId"`
 	BrokerID string    `json:"brokerId"`
 	BrokerName string    `json:"brokerName"`
-	LocalPath string    `json:"localPath,omitempty"` // Filesystem path to the grove on this host (e.g., ~/.scion or /path/to/project/.scion)
+	LocalPath string    `json:"localPath,omitempty"` // Filesystem path to the grove on this broker (e.g., ~/.scion or /path/to/project/.scion)
 	Mode      string    `json:"mode"`                // connected, read-only
 	Status    string    `json:"status"`              // online, offline
 	LastSeen  time.Time `json:"lastSeen,omitempty"`
@@ -309,7 +309,7 @@ const (
 )
 
 // =============================================================================
-// Host Authentication (Runtime Broker HMAC Authentication)
+// Broker Authentication (Runtime Broker HMAC Authentication)
 // =============================================================================
 
 // BrokerSecret stores the HMAC shared secret for a Runtime Broker.
@@ -335,7 +335,7 @@ const (
 	BrokerSecretAlgorithmHMACSHA256 = "hmac-sha256"
 )
 
-// BrokerJoinToken is a short-lived token for host registration.
+// BrokerJoinToken is a short-lived token for broker registration.
 type BrokerJoinToken struct {
 	BrokerID string    `json:"brokerId"`
 	TokenHash string    `json:"-"` // SHA-256 hash of token (never exposed)

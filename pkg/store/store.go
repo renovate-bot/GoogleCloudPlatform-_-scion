@@ -58,7 +58,7 @@ type Store interface {
 	// API Key operations
 	APIKeyStore
 
-	// Host Secret operations (Runtime Broker authentication)
+	// Broker Secret operations (Runtime Broker authentication)
 	BrokerSecretStore
 }
 
@@ -164,20 +164,20 @@ type RuntimeBrokerStore interface {
 	CreateRuntimeBroker(ctx context.Context, broker *RuntimeBroker) error
 
 	// GetRuntimeBroker retrieves a runtime broker by ID.
-	// Returns ErrNotFound if the host doesn't exist.
+	// Returns ErrNotFound if the broker doesn't exist.
 	GetRuntimeBroker(ctx context.Context, id string) (*RuntimeBroker, error)
 
 	// GetRuntimeBrokerByName retrieves a runtime broker by its name (case-insensitive).
 	// This is used to prevent duplicate brokers with the same name.
-	// Returns ErrNotFound if the host doesn't exist.
+	// Returns ErrNotFound if the broker doesn't exist.
 	GetRuntimeBrokerByName(ctx context.Context, name string) (*RuntimeBroker, error)
 
 	// UpdateRuntimeBroker updates an existing runtime broker.
-	// Returns ErrNotFound if the host doesn't exist.
+	// Returns ErrNotFound if the broker doesn't exist.
 	UpdateRuntimeBroker(ctx context.Context, broker *RuntimeBroker) error
 
 	// DeleteRuntimeBroker removes a runtime broker by ID.
-	// Returns ErrNotFound if the host doesn't exist.
+	// Returns ErrNotFound if the broker doesn't exist.
 	DeleteRuntimeBroker(ctx context.Context, id string) error
 
 	// ListRuntimeBrokers returns runtime brokers matching the filter criteria.
@@ -262,22 +262,22 @@ type UserFilter struct {
 	Status string
 }
 
-// GroveContributorStore defines grove-host relationship operations.
+// GroveContributorStore defines grove-broker relationship operations.
 type GroveContributorStore interface {
-	// AddGroveContributor adds a host as a contributor to a grove.
+	// AddGroveContributor adds a broker as a contributor to a grove.
 	AddGroveContributor(ctx context.Context, contrib *GroveContributor) error
 
-	// RemoveGroveContributor removes a host from a grove's contributors.
+	// RemoveGroveContributor removes a broker from a grove's contributors.
 	RemoveGroveContributor(ctx context.Context, groveID, brokerID string) error
 
-	// GetGroveContributor returns a specific contributor by grove and host ID.
+	// GetGroveContributor returns a specific contributor by grove and broker ID.
 	// Returns ErrNotFound if the contributor relationship doesn't exist.
 	GetGroveContributor(ctx context.Context, groveID, brokerID string) (*GroveContributor, error)
 
 	// GetGroveContributors returns all contributors to a grove.
 	GetGroveContributors(ctx context.Context, groveID string) ([]GroveContributor, error)
 
-	// GetBrokerGroves returns all groves a host contributes to.
+	// GetBrokerGroves returns all groves a broker contributes to.
 	GetBrokerGroves(ctx context.Context, brokerID string) ([]GroveContributor, error)
 
 	// UpdateContributorStatus updates a contributor's status and last seen time.
@@ -506,20 +506,20 @@ type APIKeyStore interface {
 }
 
 // =============================================================================
-// Host Secrets (Runtime Broker Authentication)
+// Broker Secrets (Runtime Broker Authentication)
 // =============================================================================
 
 // BrokerSecretStore defines broker secret persistence operations.
 type BrokerSecretStore interface {
 	// CreateBrokerSecret creates a new broker secret record.
-	// Returns ErrAlreadyExists if a secret for this host already exists.
+	// Returns ErrAlreadyExists if a secret for this broker already exists.
 	CreateBrokerSecret(ctx context.Context, secret *BrokerSecret) error
 
-	// GetBrokerSecret retrieves a broker secret by host ID.
+	// GetBrokerSecret retrieves a broker secret by broker ID.
 	// Returns ErrNotFound if the secret doesn't exist.
 	GetBrokerSecret(ctx context.Context, brokerID string) (*BrokerSecret, error)
 
-	// GetActiveSecrets retrieves all active and deprecated (within grace period) secrets for a host.
+	// GetActiveSecrets retrieves all active and deprecated (within grace period) secrets for a broker.
 	// This is used during secret rotation to support dual-secret validation.
 	// Returns an empty slice if no secrets exist.
 	GetActiveSecrets(ctx context.Context, brokerID string) ([]*BrokerSecret, error)
@@ -532,19 +532,19 @@ type BrokerSecretStore interface {
 	// Returns ErrNotFound if the secret doesn't exist.
 	DeleteBrokerSecret(ctx context.Context, brokerID string) error
 
-	// CreateJoinToken creates a new join token for host registration.
-	// Returns ErrAlreadyExists if a token for this host already exists.
+	// CreateJoinToken creates a new join token for broker registration.
+	// Returns ErrAlreadyExists if a token for this broker already exists.
 	CreateJoinToken(ctx context.Context, token *BrokerJoinToken) error
 
 	// GetJoinToken retrieves a join token by token hash.
 	// Returns ErrNotFound if the token doesn't exist.
 	GetJoinToken(ctx context.Context, tokenHash string) (*BrokerJoinToken, error)
 
-	// GetJoinTokenByBrokerID retrieves a join token by host ID.
+	// GetJoinTokenByBrokerID retrieves a join token by broker ID.
 	// Returns ErrNotFound if the token doesn't exist.
 	GetJoinTokenByBrokerID(ctx context.Context, brokerID string) (*BrokerJoinToken, error)
 
-	// DeleteJoinToken removes a join token by host ID.
+	// DeleteJoinToken removes a join token by broker ID.
 	// Returns ErrNotFound if the token doesn't exist.
 	DeleteJoinToken(ctx context.Context, brokerID string) error
 

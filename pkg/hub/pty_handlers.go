@@ -92,7 +92,7 @@ func (s *Server) handleAgentPTY(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if host is connected via control channel
+	// Check if broker is connected via control channel
 	if s.controlChannel == nil || !s.controlChannel.IsConnected(agent.RuntimeBrokerID) {
 		writeError(w, http.StatusServiceUnavailable, ErrCodeRuntimeBrokerUnavail,
 			"Runtime broker not connected", nil)
@@ -178,7 +178,7 @@ func (s *PTYSession) Run() error {
 	cols := 80
 	rows := 24
 
-	// Open stream to host
+	// Open stream to broker
 	stream, err := s.controlChan.OpenStream(s.ctx, s.brokerID, wsprotocol.StreamTypePTY, s.agentID, cols, rows)
 	if err != nil {
 		return err
@@ -193,14 +193,14 @@ func (s *PTYSession) Run() error {
 	// Start goroutines for bidirectional data flow
 	errCh := make(chan error, 2)
 
-	// Client -> Host
+	// Client -> Broker
 	go func() {
 		errCh <- s.readFromClient()
 	}()
 
-	// Host -> Client
+	// Broker -> Client
 	go func() {
-		errCh <- s.readFromHost()
+		errCh <- s.readFromBroker()
 	}()
 
 	// Start ping ticker
@@ -212,7 +212,7 @@ func (s *PTYSession) Run() error {
 	return err
 }
 
-// readFromClient reads messages from the WebSocket client and forwards to host.
+// readFromClient reads messages from the WebSocket client and forwards to broker.
 func (s *PTYSession) readFromClient() error {
 	if err := s.conn.SetReadDeadline(time.Now().Add(ptyPongWait)); err != nil {
 		return err
@@ -242,7 +242,7 @@ func (s *PTYSession) readFromClient() error {
 			if err := json.Unmarshal(data, &msg); err != nil {
 				continue
 			}
-			// Forward data to host via stream
+			// Forward data to broker via stream
 			if err := s.controlChan.SendStreamData(s.brokerID, s.stream.streamID, msg.Data); err != nil {
 				return err
 			}
@@ -252,15 +252,15 @@ func (s *PTYSession) readFromClient() error {
 			if err := json.Unmarshal(data, &msg); err != nil {
 				continue
 			}
-			// Forward resize to host
+			// Forward resize to broker
 			// TODO: Implement resize handling in stream protocol
 			slog.Debug("PTY Resize", "agentID", s.agentID, "cols", msg.Cols, "rows", msg.Rows)
 		}
 	}
 }
 
-// readFromHost reads data from the host stream and forwards to client.
-func (s *PTYSession) readFromHost() error {
+// readFromBroker reads data from the broker stream and forwards to client.
+func (s *PTYSession) readFromBroker() error {
 	for {
 		data, err := s.stream.Read(s.ctx)
 		if err != nil {
@@ -321,7 +321,7 @@ func (s *PTYSession) Close() {
 
 	s.cancel()
 
-	// Close stream to host
+	// Close stream to broker
 	if s.stream != nil {
 		s.controlChan.CloseStream(s.brokerID, s.stream.streamID, "session closed")
 	}

@@ -21,9 +21,9 @@ import (
 	"github.com/ptone/scion-agent/pkg/store"
 )
 
-// BrokerAuthConfig holds host authentication configuration.
+// BrokerAuthConfig holds broker authentication configuration.
 type BrokerAuthConfig struct {
-	// Enabled controls whether host authentication is active.
+	// Enabled controls whether broker authentication is active.
 	Enabled bool
 	// MaxClockSkew is the maximum allowed time difference between client and server.
 	MaxClockSkew time.Duration
@@ -39,7 +39,7 @@ type BrokerAuthConfig struct {
 	SecretKeyLength int
 }
 
-// DefaultBrokerAuthConfig returns the default host authentication configuration.
+// DefaultBrokerAuthConfig returns the default broker authentication configuration.
 func DefaultBrokerAuthConfig() BrokerAuthConfig {
 	return BrokerAuthConfig{
 		Enabled:          true,
@@ -52,7 +52,7 @@ func DefaultBrokerAuthConfig() BrokerAuthConfig {
 	}
 }
 
-// BrokerAuthService handles host registration and HMAC-based authentication.
+// BrokerAuthService handles broker registration and HMAC-based authentication.
 type BrokerAuthService struct {
 	config BrokerAuthConfig
 	store  store.Store
@@ -104,7 +104,7 @@ func (nc *NonceCache) cleanup() {
 	}
 }
 
-// NewBrokerAuthService creates a new host authentication service.
+// NewBrokerAuthService creates a new broker authentication service.
 func NewBrokerAuthService(config BrokerAuthConfig, s store.Store) *BrokerAuthService {
 	svc := &BrokerAuthService{
 		config: config,
@@ -117,7 +117,7 @@ func NewBrokerAuthService(config BrokerAuthConfig, s store.Store) *BrokerAuthSer
 }
 
 // =============================================================================
-// Host Registration
+// Broker Registration
 // =============================================================================
 
 // CreateBrokerRegistrationRequest is the request body for POST /api/v1/brokers.
@@ -153,14 +153,14 @@ type BrokerJoinResponse struct {
 // JoinTokenPrefix is the prefix for join tokens.
 const JoinTokenPrefix = "scion_join_"
 
-// CreateBrokerRegistration creates a new host with a join token.
+// CreateBrokerRegistration creates a new broker with a join token.
 // Requires admin authentication.
 func (s *BrokerAuthService) CreateBrokerRegistration(ctx context.Context, req CreateBrokerRegistrationRequest, createdBy string) (*CreateBrokerRegistrationResponse, error) {
 	if req.Name == "" {
 		return nil, errors.New("name is required")
 	}
 
-	// Generate host ID
+	// Generate broker ID
 	brokerID := uuid.New().String()
 
 	// Create the runtime broker record
@@ -202,7 +202,7 @@ func (s *BrokerAuthService) CreateBrokerRegistration(ctx context.Context, req Cr
 	}
 
 	if err := s.store.CreateJoinToken(ctx, joinTokenRecord); err != nil {
-		// Clean up the host record on failure
+		// Clean up the broker record on failure
 		_ = s.store.DeleteRuntimeBroker(ctx, brokerID)
 		return nil, fmt.Errorf("failed to create join token: %w", err)
 	}
@@ -214,7 +214,7 @@ func (s *BrokerAuthService) CreateBrokerRegistration(ctx context.Context, req Cr
 	}, nil
 }
 
-// CompleteBrokerJoin completes host registration with join token exchange.
+// CompleteBrokerJoin completes broker registration with join token exchange.
 // Returns the shared secret for HMAC authentication.
 func (s *BrokerAuthService) CompleteBrokerJoin(ctx context.Context, req BrokerJoinRequest, hubEndpoint string) (*BrokerJoinResponse, error) {
 	if req.BrokerID == "" {
@@ -236,9 +236,9 @@ func (s *BrokerAuthService) CompleteBrokerJoin(ctx context.Context, req BrokerJo
 		return nil, fmt.Errorf("failed to validate join token: %w", err)
 	}
 
-	// Verify host ID matches
+	// Verify broker ID matches
 	if joinToken.BrokerID != req.BrokerID {
-		return nil, fmt.Errorf("join token does not match host")
+		return nil, fmt.Errorf("join token does not match broker")
 	}
 
 	// Check expiry
@@ -293,7 +293,7 @@ func (s *BrokerAuthService) CompleteBrokerJoin(ctx context.Context, req BrokerJo
 	}, nil
 }
 
-// GenerateAndStoreSecret generates a new HMAC secret for an existing host.
+// GenerateAndStoreSecret generates a new HMAC secret for an existing broker.
 // This is used for simplified registration flows where a join token is not required.
 // Returns the base64-encoded secret key.
 func (s *BrokerAuthService) GenerateAndStoreSecret(ctx context.Context, brokerID string) (string, error) {
@@ -301,10 +301,10 @@ func (s *BrokerAuthService) GenerateAndStoreSecret(ctx context.Context, brokerID
 		return "", errors.New("brokerId is required")
 	}
 
-	// Check if host already has a secret
+	// Check if broker already has a secret
 	existingSecret, err := s.store.GetBrokerSecret(ctx, brokerID)
 	if err == nil && existingSecret != nil {
-		// Host already has a secret - return it (re-registration case)
+		// Broker already has a secret - return it (re-registration case)
 		return base64.StdEncoding.EncodeToString(existingSecret.SecretKey), nil
 	}
 
@@ -334,7 +334,7 @@ func (s *BrokerAuthService) GenerateAndStoreSecret(ctx context.Context, brokerID
 // HMAC Signature Validation
 // =============================================================================
 
-// HMAC authentication headers as per runtime-host-auth.md
+// HMAC authentication headers as per runtime-broker-auth.md
 const (
 	HeaderBrokerID        = "X-Scion-Broker-ID"
 	HeaderTimestamp     = "X-Scion-Timestamp"
@@ -384,11 +384,11 @@ func (s *BrokerAuthService) ValidateBrokerSignature(ctx context.Context, r *http
 		}
 	}
 
-	// Get the host's secret
+	// Get the broker's secret
 	brokerSecret, err := s.store.GetBrokerSecret(ctx, brokerID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			return nil, fmt.Errorf("unknown host: %s", brokerID)
+			return nil, fmt.Errorf("unknown broker: %s", brokerID)
 		}
 		return nil, fmt.Errorf("failed to get broker secret: %w", err)
 	}
@@ -514,10 +514,10 @@ type RotateSecretResponse struct {
 	GracePeriod string    `json:"gracePeriod"` // Duration string
 }
 
-// RotateBrokerSecret generates a new secret for a host.
+// RotateBrokerSecret generates a new secret for a broker.
 // The old secret is marked as deprecated and remains valid for the grace period.
-// Note: Current schema only supports one secret per host, so this replaces immediately.
-// TODO: Add schema migration to support multiple secrets per host for true dual-secret rotation.
+// Note: Current schema only supports one secret per broker, so this replaces immediately.
+// TODO: Add schema migration to support multiple secrets per broker for true dual-secret rotation.
 func (s *BrokerAuthService) RotateBrokerSecret(ctx context.Context, brokerID string, gracePeriod time.Duration) (*RotateSecretResponse, error) {
 	if gracePeriod <= 0 {
 		gracePeriod = 5 * time.Minute
@@ -566,14 +566,14 @@ func (s *BrokerAuthService) ValidateBrokerSignatureWithRotation(ctx context.Cont
 		return nil, errors.New("missing X-Scion-Broker-ID header")
 	}
 
-	// Get all active secrets for this host
+	// Get all active secrets for this broker
 	secrets, err := s.store.GetActiveSecrets(ctx, brokerID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get broker secrets: %w", err)
 	}
 
 	if len(secrets) == 0 {
-		return nil, fmt.Errorf("unknown host: %s", brokerID)
+		return nil, fmt.Errorf("unknown broker: %s", brokerID)
 	}
 
 	// Try each secret until one validates
@@ -681,18 +681,18 @@ func slugify(name string) string {
 // Middleware
 // =============================================================================
 
-// BrokerAuthMiddleware creates middleware for HMAC-based host authentication.
+// BrokerAuthMiddleware creates middleware for HMAC-based broker authentication.
 // This runs AFTER UnifiedAuthMiddleware and checks for X-Scion-Broker-ID header.
 func BrokerAuthMiddleware(svc *BrokerAuthService) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Skip if host auth service is not configured
+			// Skip if broker auth service is not configured
 			if svc == nil || !svc.config.Enabled {
 				next.ServeHTTP(w, r)
 				return
 			}
 
-			// Skip if not a host-authenticated request
+			// Skip if not a broker-authenticated request
 			brokerID := r.Header.Get(HeaderBrokerID)
 			if brokerID == "" {
 				next.ServeHTTP(w, r)
@@ -706,7 +706,7 @@ func BrokerAuthMiddleware(svc *BrokerAuthService) func(http.Handler) http.Handle
 				return
 			}
 
-			// Set both host-specific and generic identity contexts
+			// Set both broker-specific and generic identity contexts
 			ctx := contextWithBrokerIdentity(r.Context(), identity)
 			ctx = contextWithIdentity(ctx, identity)
 			next.ServeHTTP(w, r.WithContext(ctx))
@@ -714,7 +714,7 @@ func BrokerAuthMiddleware(svc *BrokerAuthService) func(http.Handler) http.Handle
 	}
 }
 
-// writeBrokerAuthError writes a host authentication error response.
+// writeBrokerAuthError writes a broker authentication error response.
 func writeBrokerAuthError(w http.ResponseWriter, message string) {
 	writeError(w, http.StatusUnauthorized, ErrCodeBrokerAuthFailed, message, nil)
 }

@@ -121,7 +121,7 @@ func createAgentViaHub(hubCtx *HubContext, agentName string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	resp, err := createAgentWithHostResolution(ctx, hubCtx, groveID, req)
+	resp, err := createAgentWithBrokerResolution(ctx, hubCtx, groveID, req)
 	if err != nil {
 		return wrapHubError(fmt.Errorf("failed to create agent via Hub: %w", err))
 	}

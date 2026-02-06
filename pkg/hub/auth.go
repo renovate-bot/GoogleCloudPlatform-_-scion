@@ -44,7 +44,7 @@ const (
 // UnifiedAuthMiddleware creates middleware that handles all authentication types.
 // It processes tokens in priority order:
 // 1. Agent tokens (X-Scion-Agent-Token or agent JWT in Bearer)
-// 2. Host HMAC auth (X-Scion-Broker-ID header) - passed through to BrokerAuthMiddleware
+// 2. Broker HMAC auth (X-Scion-Broker-ID header) - passed through to BrokerAuthMiddleware
 // 3. Development tokens (scion_dev_* prefix)
 // 4. API keys (sk_live_* or sk_test_* prefix)
 // 5. User JWTs
@@ -104,11 +104,11 @@ func UnifiedAuthMiddleware(cfg AuthConfig) func(http.Handler) http.Handler {
 				// Bearer token wasn't an agent token, continue to user auth
 			}
 
-			// Step 2: Check for host HMAC authentication (X-Scion-Broker-ID header)
+			// Step 2: Check for broker HMAC authentication (X-Scion-Broker-ID header)
 			// If present, pass through to BrokerAuthMiddleware which runs next
 			if brokerID := r.Header.Get("X-Scion-Broker-ID"); brokerID != "" {
 				if cfg.Debug {
-					slog.Debug("Host auth headers present, deferring to BrokerAuthMiddleware", "brokerID", brokerID)
+					slog.Debug("Broker auth headers present, deferring to BrokerAuthMiddleware", "brokerID", brokerID)
 				}
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
@@ -284,7 +284,7 @@ func isUnauthenticatedEndpoint(path string) bool {
 		return true
 	case "/api/v1/auth/cli/token": // CLI OAuth token exchange
 		return true
-	case "/api/v1/brokers/join": // Host registration bootstrap (uses join token)
+	case "/api/v1/brokers/join": // Broker registration bootstrap (uses join token)
 		return true
 	}
 	return false

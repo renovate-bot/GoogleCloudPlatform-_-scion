@@ -80,7 +80,7 @@ type Grove struct {
 	ActiveBrokerCount      int                `json:"activeBrokerCount,omitempty"`
 }
 
-// GroveContributor represents a host contributing to a grove.
+// GroveContributor represents a broker contributing to a grove.
 type GroveContributor struct {
 	BrokerID string    `json:"brokerId"`
 	BrokerName string    `json:"brokerName"`
@@ -143,7 +143,7 @@ type BrokerProfile struct {
 	Namespace string `json:"namespace,omitempty"`
 }
 
-// BrokerGroveInfo describes a grove from a host's perspective.
+// BrokerGroveInfo describes a grove from a broker's perspective.
 type BrokerGroveInfo struct {
 	GroveID    string `json:"groveId"`
 	GroveName  string `json:"groveName"`

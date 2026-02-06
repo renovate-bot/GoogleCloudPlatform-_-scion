@@ -282,16 +282,16 @@ func (d *HTTPAgentDispatcher) SetHubEndpoint(endpoint string) {
 	d.hubEndpoint = endpoint
 }
 
-// getHostEndpoint retrieves the endpoint URL for a runtime broker.
-func (d *HTTPAgentDispatcher) getHostEndpoint(ctx context.Context, brokerID string) (string, error) {
+// getBrokerEndpoint retrieves the endpoint URL for a runtime broker.
+func (d *HTTPAgentDispatcher) getBrokerEndpoint(ctx context.Context, brokerID string) (string, error) {
 	broker, err := d.store.GetRuntimeBroker(ctx, brokerID)
 	if err != nil {
 		return "", fmt.Errorf("failed to get runtime broker: %w", err)
 	}
 
 	if broker.Endpoint == "" {
-		// Fall back to constructing endpoint from host info
-		// This assumes the host is reachable at its default port
+		// Fall back to constructing endpoint from broker info
+		// This assumes the broker is reachable at its default port
 		return fmt.Sprintf("http://localhost:9800"), nil
 	}
 
@@ -304,7 +304,7 @@ func (d *HTTPAgentDispatcher) DispatchAgentCreate(ctx context.Context, agent *st
 		return fmt.Errorf("agent has no runtime broker assigned")
 	}
 
-	endpoint, err := d.getHostEndpoint(ctx, agent.RuntimeBrokerID)
+	endpoint, err := d.getBrokerEndpoint(ctx, agent.RuntimeBrokerID)
 	if err != nil {
 		return err
 	}
@@ -320,7 +320,7 @@ func (d *HTTPAgentDispatcher) DispatchAgentCreate(ctx context.Context, agent *st
 		} else if contrib.LocalPath != "" {
 			grovePath = contrib.LocalPath
 			if d.debug {
-				slog.Debug("Found grove path for host", "brokerID", agent.RuntimeBrokerID, "path", grovePath)
+				slog.Debug("Found grove path for broker", "brokerID", agent.RuntimeBrokerID, "path", grovePath)
 			}
 		}
 	}
@@ -396,7 +396,7 @@ func (d *HTTPAgentDispatcher) DispatchAgentStart(ctx context.Context, agent *sto
 		return fmt.Errorf("agent has no runtime broker assigned")
 	}
 
-	endpoint, err := d.getHostEndpoint(ctx, agent.RuntimeBrokerID)
+	endpoint, err := d.getBrokerEndpoint(ctx, agent.RuntimeBrokerID)
 	if err != nil {
 		return err
 	}
@@ -411,7 +411,7 @@ func (d *HTTPAgentDispatcher) DispatchAgentStop(ctx context.Context, agent *stor
 		return fmt.Errorf("agent has no runtime broker assigned")
 	}
 
-	endpoint, err := d.getHostEndpoint(ctx, agent.RuntimeBrokerID)
+	endpoint, err := d.getBrokerEndpoint(ctx, agent.RuntimeBrokerID)
 	if err != nil {
 		return err
 	}
@@ -425,7 +425,7 @@ func (d *HTTPAgentDispatcher) DispatchAgentRestart(ctx context.Context, agent *s
 		return fmt.Errorf("agent has no runtime broker assigned")
 	}
 
-	endpoint, err := d.getHostEndpoint(ctx, agent.RuntimeBrokerID)
+	endpoint, err := d.getBrokerEndpoint(ctx, agent.RuntimeBrokerID)
 	if err != nil {
 		return err
 	}
@@ -439,7 +439,7 @@ func (d *HTTPAgentDispatcher) DispatchAgentDelete(ctx context.Context, agent *st
 		return fmt.Errorf("agent has no runtime broker assigned")
 	}
 
-	endpoint, err := d.getHostEndpoint(ctx, agent.RuntimeBrokerID)
+	endpoint, err := d.getBrokerEndpoint(ctx, agent.RuntimeBrokerID)
 	if err != nil {
 		return err
 	}
@@ -453,7 +453,7 @@ func (d *HTTPAgentDispatcher) DispatchAgentMessage(ctx context.Context, agent *s
 		return fmt.Errorf("agent has no runtime broker assigned")
 	}
 
-	endpoint, err := d.getHostEndpoint(ctx, agent.RuntimeBrokerID)
+	endpoint, err := d.getBrokerEndpoint(ctx, agent.RuntimeBrokerID)
 	if err != nil {
 		return err
 	}

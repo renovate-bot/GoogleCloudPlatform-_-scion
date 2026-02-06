@@ -18,7 +18,7 @@ import (
 
 // ControlChannelConfig holds configuration for the control channel.
 type ControlChannelConfig struct {
-	// PingInterval is how often to send pings to connected hosts.
+	// PingInterval is how often to send pings to connected brokers.
 	PingInterval time.Duration
 	// PongWait is how long to wait for a pong response.
 	PongWait time.Duration
@@ -197,7 +197,7 @@ func (m *ControlChannelManager) HandleUpgrade(w http.ResponseWriter, r *http.Req
 	m.connections[brokerID] = brokerConn
 	m.mu.Unlock()
 
-	slog.Info("Host control channel connected", "brokerID", brokerID, "sessionID", sessionID)
+	slog.Info("Broker control channel connected", "brokerID", brokerID, "sessionID", sessionID)
 
 	// Start message handler
 	go m.handleConnection(brokerConn)
@@ -214,12 +214,12 @@ func (m *ControlChannelManager) HandleUpgrade(w http.ResponseWriter, r *http.Req
 	return nil
 }
 
-// handleConnection handles messages from a connected host.
+// handleConnection handles messages from a connected broker.
 func (m *ControlChannelManager) handleConnection(hc *BrokerConnection) {
 	defer func() {
 		hc.Close()
 		m.removeConnection(hc.brokerID)
-		slog.Info("Host control channel disconnected", "brokerID", hc.brokerID)
+		slog.Info("Broker control channel disconnected", "brokerID", hc.brokerID)
 	}()
 
 	// Set up pong handler
@@ -261,7 +261,7 @@ func (m *ControlChannelManager) handleConnection(hc *BrokerConnection) {
 	}
 }
 
-// handleMessage processes a single message from a host.
+// handleMessage processes a single message from a broker.
 func (m *ControlChannelManager) handleMessage(hc *BrokerConnection, data []byte) error {
 	env, err := wsprotocol.ParseEnvelope(data)
 	if err != nil {
@@ -273,7 +273,7 @@ func (m *ControlChannelManager) handleMessage(hc *BrokerConnection, data []byte)
 		// Client sent connect message after we already sent connected.
 		// This is expected - just acknowledge we received it.
 		if m.config.Debug {
-			slog.Debug("Received connect message from host (already connected)", "brokerID", hc.brokerID)
+			slog.Debug("Received connect message from broker (already connected)", "brokerID", hc.brokerID)
 		}
 		return nil
 	case wsprotocol.TypeResponse:
@@ -289,13 +289,13 @@ func (m *ControlChannelManager) handleMessage(hc *BrokerConnection, data []byte)
 		return nil
 	default:
 		if m.config.Debug {
-			slog.Debug("Unknown message type from host", "brokerID", hc.brokerID, "type", env.Type)
+			slog.Debug("Unknown message type from broker", "brokerID", hc.brokerID, "type", env.Type)
 		}
 		return nil
 	}
 }
 
-// handleResponse processes a response message from a host.
+// handleResponse processes a response message from a broker.
 func (m *ControlChannelManager) handleResponse(hc *BrokerConnection, data []byte) error {
 	var resp wsprotocol.ResponseEnvelope
 	if err := json.Unmarshal(data, &resp); err != nil {
@@ -322,7 +322,7 @@ func (m *ControlChannelManager) handleResponse(hc *BrokerConnection, data []byte
 	return nil
 }
 
-// handleStreamData processes stream data from a host.
+// handleStreamData processes stream data from a broker.
 func (m *ControlChannelManager) handleStreamData(hc *BrokerConnection, data []byte) error {
 	var frame wsprotocol.StreamFrame
 	if err := json.Unmarshal(data, &frame); err != nil {
@@ -368,7 +368,7 @@ func (m *ControlChannelManager) handleStreamClose(hc *BrokerConnection, data []b
 	return nil
 }
 
-// handleEvent processes an event message from a host.
+// handleEvent processes an event message from a broker.
 func (m *ControlChannelManager) handleEvent(hc *BrokerConnection, data []byte) error {
 	var event wsprotocol.EventMessage
 	if err := json.Unmarshal(data, &event); err != nil {
@@ -380,7 +380,7 @@ func (m *ControlChannelManager) handleEvent(hc *BrokerConnection, data []byte) e
 		// Update last activity time
 		hc.lastPongAt = time.Now()
 		if m.config.Debug {
-			slog.Debug("Control channel heartbeat from host", "brokerID", hc.brokerID)
+			slog.Debug("Control channel heartbeat from broker", "brokerID", hc.brokerID)
 		}
 	case wsprotocol.EventAgentStatus:
 		// TODO: Forward to interested clients
@@ -408,7 +408,7 @@ func (m *ControlChannelManager) pingLoop(hc *BrokerConnection) {
 		case <-ticker.C:
 			hc.lastPingAt = time.Now()
 			if err := hc.conn.WritePing(); err != nil {
-				slog.Error("Failed to ping host", "brokerID", hc.brokerID, "error", err)
+				slog.Error("Failed to ping broker", "brokerID", hc.brokerID, "error", err)
 				hc.cancel()
 				return
 			}
@@ -416,21 +416,21 @@ func (m *ControlChannelManager) pingLoop(hc *BrokerConnection) {
 	}
 }
 
-// removeConnection removes a host connection from the manager.
+// removeConnection removes a broker connection from the manager.
 func (m *ControlChannelManager) removeConnection(brokerID string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.connections, brokerID)
 }
 
-// GetConnection returns the connection for a host, or nil if not connected.
+// GetConnection returns the connection for a broker, or nil if not connected.
 func (m *ControlChannelManager) GetConnection(brokerID string) *BrokerConnection {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.connections[brokerID]
 }
 
-// IsConnected returns true if the host has an active control channel.
+// IsConnected returns true if the broker has an active control channel.
 func (m *ControlChannelManager) IsConnected(brokerID string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -442,17 +442,17 @@ func (m *ControlChannelManager) IsConnected(brokerID string) bool {
 func (m *ControlChannelManager) TunnelRequest(ctx context.Context, brokerID string, req *wsprotocol.RequestEnvelope) (*wsprotocol.ResponseEnvelope, error) {
 	hc := m.GetConnection(brokerID)
 	if hc == nil {
-		return nil, fmt.Errorf("host %s not connected", brokerID)
+		return nil, fmt.Errorf("broker %s not connected", brokerID)
 	}
 
 	return hc.TunnelRequest(ctx, req)
 }
 
-// OpenStream opens a new multiplexed stream to a host.
+// OpenStream opens a new multiplexed stream to a broker.
 func (m *ControlChannelManager) OpenStream(ctx context.Context, brokerID, streamType, agentID string, cols, rows int) (*StreamProxy, error) {
 	hc := m.GetConnection(brokerID)
 	if hc == nil {
-		return nil, fmt.Errorf("host %s not connected", brokerID)
+		return nil, fmt.Errorf("broker %s not connected", brokerID)
 	}
 
 	return hc.OpenStream(ctx, streamType, agentID, cols, rows)
@@ -462,7 +462,7 @@ func (m *ControlChannelManager) OpenStream(ctx context.Context, brokerID, stream
 func (m *ControlChannelManager) SendStreamData(brokerID, streamID string, data []byte) error {
 	hc := m.GetConnection(brokerID)
 	if hc == nil {
-		return fmt.Errorf("host %s not connected", brokerID)
+		return fmt.Errorf("broker %s not connected", brokerID)
 	}
 
 	return hc.SendStreamData(streamID, data)
@@ -472,13 +472,13 @@ func (m *ControlChannelManager) SendStreamData(brokerID, streamID string, data [
 func (m *ControlChannelManager) CloseStream(brokerID, streamID, reason string) error {
 	hc := m.GetConnection(brokerID)
 	if hc == nil {
-		return fmt.Errorf("host %s not connected", brokerID)
+		return fmt.Errorf("broker %s not connected", brokerID)
 	}
 
 	return hc.CloseStream(streamID, reason)
 }
 
-// ListConnectedBrokers returns a list of currently connected host IDs.
+// ListConnectedBrokers returns a list of currently connected broker IDs.
 func (m *ControlChannelManager) ListConnectedBrokers() []string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -590,7 +590,7 @@ func (hc *BrokerConnection) CloseStream(streamID, reason string) error {
 	return hc.conn.WriteJSON(closeMsg)
 }
 
-// Close closes the host connection.
+// Close closes the broker connection.
 func (hc *BrokerConnection) Close() {
 	hc.cancel()
 

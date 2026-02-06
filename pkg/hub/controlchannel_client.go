@@ -17,7 +17,7 @@ type ControlChannelBrokerClient struct {
 	debug   bool
 }
 
-// NewControlChannelBrokerClient creates a new control channel host client.
+// NewControlChannelBrokerClient creates a new control channel broker client.
 func NewControlChannelBrokerClient(manager *ControlChannelManager, debug bool) *ControlChannelBrokerClient {
 	return &ControlChannelBrokerClient{
 		manager: manager,
@@ -107,7 +107,7 @@ func (c *ControlChannelBrokerClient) MessageAgent(ctx context.Context, brokerID,
 // doRequest tunnels an HTTP request through the control channel.
 func (c *ControlChannelBrokerClient) doRequest(ctx context.Context, brokerID, method, path, query string, body []byte) (*wsprotocol.ResponseEnvelope, error) {
 	if !c.manager.IsConnected(brokerID) {
-		return nil, fmt.Errorf("host %s not connected via control channel", brokerID)
+		return nil, fmt.Errorf("broker %s not connected via control channel", brokerID)
 	}
 
 	headers := map[string]string{
@@ -143,7 +143,7 @@ func NewHybridBrokerClient(manager *ControlChannelManager, httpClient RuntimeBro
 	}
 }
 
-// useControlChannel returns true if we should use control channel for this host.
+// useControlChannel returns true if we should use control channel for this broker.
 func (c *HybridBrokerClient) useControlChannel(brokerID string) bool {
 	return c.controlChannel.manager.IsConnected(brokerID)
 }

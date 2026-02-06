@@ -41,9 +41,9 @@ type ServerConfig struct {
 	// HubEndpoint is the Hub API endpoint for reporting (optional).
 	HubEndpoint string
 
-	// HostID is a unique identifier for this runtime broker.
+	// BrokerID is a unique identifier for this runtime broker.
 	BrokerID string
-	// HostName is a human-readable name for this runtime broker.
+	// BrokerName is a human-readable name for this runtime broker.
 	BrokerName string
 
 	// CORS settings
@@ -71,15 +71,15 @@ type ServerConfig struct {
 	// Defaults to 100MB if not specified.
 	TemplateCacheMaxSize int64
 
-	// Host credentials settings
+	// Broker credentials settings
 	// BrokerCredentialsPath is the path to the broker credentials file.
 	// If set, HMAC authentication will be used instead of bearer tokens.
 	// Defaults to ~/.scion/broker-credentials.json if not specified.
 	BrokerCredentialsPath string
 
-	// HostAuthEnabled enables HMAC verification for incoming requests from the Hub.
+	// BrokerAuthEnabled enables HMAC verification for incoming requests from the Hub.
 	BrokerAuthEnabled bool
-	// HostAuthStrictMode, when true, requires all requests to be authenticated.
+	// BrokerAuthStrictMode, when true, requires all requests to be authenticated.
 	// When false (default), unauthenticated requests are allowed for transition periods.
 	BrokerAuthStrictMode bool
 
@@ -92,7 +92,7 @@ type ServerConfig struct {
 
 	// Control channel settings
 	// ControlChannelEnabled enables the WebSocket control channel to the Hub.
-	// This allows NAT traversal for hosts behind firewalls.
+	// This allows NAT traversal for brokers behind firewalls.
 	ControlChannelEnabled bool
 
 	// Workspace sync settings
@@ -216,7 +216,7 @@ func (s *Server) initHubIntegration() error {
 		opts = append(opts, hubclient.WithHMACAuth(s.brokerCredentials.BrokerID, secretKey))
 		slog.Info("Hub client using HMAC authentication", "brokerID", s.brokerCredentials.BrokerID)
 
-		// Update HostID from credentials if not already set
+		// Update BrokerID from credentials if not already set
 		if s.config.BrokerID == "" {
 			s.config.BrokerID = s.brokerCredentials.BrokerID
 		}
@@ -248,9 +248,9 @@ func (s *Server) initHubIntegration() error {
 			AllowUnauthenticated: !s.config.BrokerAuthStrictMode, // Configurable strict mode
 		})
 		if s.config.BrokerAuthStrictMode {
-			slog.Info("Host auth middleware enabled (strict mode)")
+			slog.Info("Broker auth middleware enabled (strict mode)")
 		} else {
-			slog.Info("Host auth middleware enabled (permissive mode)")
+			slog.Info("Broker auth middleware enabled (permissive mode)")
 		}
 	}
 
@@ -282,7 +282,7 @@ func (s *Server) loadBrokerCredentials() error {
 
 	s.brokerCredentials = creds
 	s.credentialsModTime = s.credentialsStore.ModTime()
-	slog.Info("Host credentials loaded", "brokerID", creds.BrokerID, "hub", creds.HubEndpoint)
+	slog.Info("Broker credentials loaded", "brokerID", creds.BrokerID, "hub", creds.HubEndpoint)
 	return nil
 }
 
@@ -330,7 +330,7 @@ func (s *Server) Start(ctx context.Context) error {
 		"mode", s.config.Mode,
 	)
 	if s.config.Debug {
-		slog.Debug("Host details",
+		slog.Debug("Broker details",
 			"brokerID", s.config.BrokerID,
 			"brokerName", s.config.BrokerName,
 			"hub_endpoint", s.config.HubEndpoint,
@@ -565,7 +565,7 @@ func (s *Server) reinitializeHubServices(ctx context.Context, creds *brokercrede
 
 	s.mu.Lock()
 	s.hubClient = client
-	s.config.BrokerID = creds.BrokerID // Update HostID in config
+	s.config.BrokerID = creds.BrokerID // Update BrokerID in config
 	if s.cache != nil {
 		s.hydrator = templatecache.NewHydrator(s.cache, client)
 	}

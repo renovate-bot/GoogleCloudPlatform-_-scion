@@ -474,7 +474,7 @@ type RuntimeBrokerWorkspaceApplyResponse struct {
 
 // tunnelWorkspaceRequest tunnels a workspace request to a Runtime Broker via the control channel.
 func tunnelWorkspaceRequest(ctx context.Context, cc *ControlChannelManager, brokerID, method, path string, reqBody interface{}, respBody interface{}) error {
-	// Check host is connected
+	// Check broker is connected
 	if !cc.IsConnected(brokerID) {
 		return errBrokerNotConnected(brokerID)
 	}
@@ -516,7 +516,7 @@ func tunnelWorkspaceRequest(ctx context.Context, cc *ControlChannelManager, brok
 	return nil
 }
 
-// errBrokerNotConnected returns an error indicating the host is not connected.
+// errBrokerNotConnected returns an error indicating the broker is not connected.
 func errBrokerNotConnected(brokerID string) error {
 	return &brokerError{brokerID: brokerID, msg: "broker not connected via control channel"}
 }
@@ -535,7 +535,7 @@ type brokerError struct {
 
 func (e *brokerError) Error() string {
 	if e.brokerID != "" {
-		return "host " + e.brokerID + ": " + e.msg
+		return "broker " + e.brokerID + ": " + e.msg
 	}
 	return e.msg
 }

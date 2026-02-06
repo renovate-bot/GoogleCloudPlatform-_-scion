@@ -8,17 +8,17 @@ import (
 	"time"
 )
 
-// BrokerAuthEventType defines the type of host authentication event.
+// BrokerAuthEventType defines the type of broker authentication event.
 type BrokerAuthEventType string
 
 const (
-	// BrokerAuthEventRegister is logged when a new host is registered.
+	// BrokerAuthEventRegister is logged when a new broker is registered.
 	BrokerAuthEventRegister BrokerAuthEventType = "register"
-	// BrokerAuthEventJoin is logged when a host completes join.
+	// BrokerAuthEventJoin is logged when a broker completes join.
 	BrokerAuthEventJoin BrokerAuthEventType = "join"
-	// BrokerAuthEventAuthSuccess is logged when a host successfully authenticates.
+	// BrokerAuthEventAuthSuccess is logged when a broker successfully authenticates.
 	BrokerAuthEventAuthSuccess BrokerAuthEventType = "auth_success"
-	// BrokerAuthEventAuthFailure is logged when a host fails to authenticate.
+	// BrokerAuthEventAuthFailure is logged when a broker fails to authenticate.
 	BrokerAuthEventAuthFailure BrokerAuthEventType = "auth_failure"
 	// BrokerAuthEventRotate is logged when a broker secret is rotated.
 	BrokerAuthEventRotate BrokerAuthEventType = "rotate"
@@ -26,7 +26,7 @@ const (
 	BrokerAuthEventRevoke BrokerAuthEventType = "revoke"
 )
 
-// BrokerAuthEvent represents an auditable event related to host authentication.
+// BrokerAuthEvent represents an auditable event related to broker authentication.
 type BrokerAuthEvent struct {
 	EventType  BrokerAuthEventType `json:"eventType"`
 	BrokerID string            `json:"brokerId"`
@@ -36,14 +36,14 @@ type BrokerAuthEvent struct {
 	Success    bool              `json:"success"`
 	FailReason string            `json:"failReason,omitempty"`
 	ActorID    string            `json:"actorId,omitempty"`   // User ID if admin action
-	ActorType  string            `json:"actorType,omitempty"` // "user", "host", or "system"
+	ActorType  string            `json:"actorType,omitempty"` // "user", "broker", or "system"
 	Timestamp  time.Time         `json:"timestamp"`
 	Details    map[string]string `json:"details,omitempty"`
 }
 
 // AuditLogger defines the interface for logging audit events.
 type AuditLogger interface {
-	// LogBrokerAuthEvent logs a host authentication event.
+	// LogBrokerAuthEvent logs a broker authentication event.
 	LogBrokerAuthEvent(ctx context.Context, event *BrokerAuthEvent) error
 }
 
@@ -64,7 +64,7 @@ func NewLogAuditLogger(prefix string, debug bool) *LogAuditLogger {
 	}
 }
 
-// LogBrokerAuthEvent logs a host authentication event to the standard logger.
+// LogBrokerAuthEvent logs a broker authentication event to the standard logger.
 func (l *LogAuditLogger) LogBrokerAuthEvent(ctx context.Context, event *BrokerAuthEvent) error {
 	level := slog.LevelInfo
 	if !event.Success {
@@ -93,7 +93,7 @@ func (l *LogAuditLogger) LogBrokerAuthEvent(ctx context.Context, event *BrokerAu
 		}
 	}
 
-	slog.LogAttrs(ctx, level, "Host auth audit event", attrs...)
+	slog.LogAttrs(ctx, level, "Broker auth audit event", attrs...)
 
 	return nil
 }
@@ -103,13 +103,13 @@ func (l *LogAuditLogger) LogBrokerAuthEvent(ctx context.Context, event *BrokerAu
 func AuditableBrokerAuthMiddleware(svc *BrokerAuthService, logger AuditLogger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Skip if host auth service is not configured
+			// Skip if broker auth service is not configured
 			if svc == nil || !svc.config.Enabled {
 				next.ServeHTTP(w, r)
 				return
 			}
 
-			// Skip if not a host-authenticated request
+			// Skip if not a broker-authenticated request
 			brokerID := r.Header.Get(HeaderBrokerID)
 			if brokerID == "" {
 				next.ServeHTTP(w, r)
@@ -147,7 +147,7 @@ func AuditableBrokerAuthMiddleware(svc *BrokerAuthService, logger AuditLogger) f
 				_ = logger.LogBrokerAuthEvent(r.Context(), event)
 			}
 
-			// Set both host-specific and generic identity contexts
+			// Set both broker-specific and generic identity contexts
 			ctx := contextWithBrokerIdentity(r.Context(), identity)
 			ctx = contextWithIdentity(ctx, identity)
 			next.ServeHTTP(w, r.WithContext(ctx))
@@ -177,7 +177,7 @@ func getClientIP(r *http.Request) string {
 	return r.RemoteAddr
 }
 
-// LogRegistrationEvent logs a host registration event.
+// LogRegistrationEvent logs a broker registration event.
 func LogRegistrationEvent(ctx context.Context, logger AuditLogger, brokerID, brokerName, actorID, ipAddress string) {
 	if logger == nil {
 		return
@@ -197,7 +197,7 @@ func LogRegistrationEvent(ctx context.Context, logger AuditLogger, brokerID, bro
 	_ = logger.LogBrokerAuthEvent(ctx, event)
 }
 
-// LogJoinEvent logs a host join event.
+// LogJoinEvent logs a broker join event.
 func LogJoinEvent(ctx context.Context, logger AuditLogger, brokerID, ipAddress string, success bool, failReason string) {
 	if logger == nil {
 		return

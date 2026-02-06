@@ -26,7 +26,7 @@ type AuthenticatedBrokerClient struct {
 	debug      bool
 }
 
-// NewAuthenticatedBrokerClient creates a new authenticated host client.
+// NewAuthenticatedBrokerClient creates a new authenticated broker client.
 func NewAuthenticatedBrokerClient(s store.Store, debug bool) *AuthenticatedBrokerClient {
 	return &AuthenticatedBrokerClient{
 		httpClient: &http.Client{
@@ -37,7 +37,7 @@ func NewAuthenticatedBrokerClient(s store.Store, debug bool) *AuthenticatedBroke
 	}
 }
 
-// getBrokerSecret retrieves the secret key for a host from the store.
+// getBrokerSecret retrieves the secret key for a broker from the store.
 func (c *AuthenticatedBrokerClient) getBrokerSecret(ctx context.Context, brokerID string) ([]byte, error) {
 	secret, err := c.store.GetBrokerSecret(ctx, brokerID)
 	if err != nil {
@@ -92,13 +92,13 @@ func (c *AuthenticatedBrokerClient) doRequest(ctx context.Context, brokerID, met
 		if c.debug {
 			slog.Warn("Failed to sign request", "brokerID", brokerID, "error", err)
 		}
-		// Continue without authentication - the host may reject or allow depending on its config
+		// Continue without authentication - the broker may reject or allow depending on its config
 	} else if c.debug {
-		slog.Debug("Signed request for host", "brokerID", brokerID)
+		slog.Debug("Signed request for broker", "brokerID", brokerID)
 	}
 
 	if c.debug {
-		slog.Debug("Outgoing request to host", "method", method, "endpoint", endpoint)
+		slog.Debug("Outgoing request to broker", "method", method, "endpoint", endpoint)
 	}
 
 	return c.httpClient.Do(req)

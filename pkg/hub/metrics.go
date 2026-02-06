@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// BrokerAuthMetrics tracks metrics for host authentication.
+// BrokerAuthMetrics tracks metrics for broker authentication.
 // This provides a simple, dependency-free metrics implementation.
 // For production use with Prometheus, implement MetricsRecorder interface.
 type BrokerAuthMetrics struct {
@@ -28,7 +28,7 @@ type BrokerAuthMetrics struct {
 	dispatchAttempts atomic.Int64
 	dispatchFailures atomic.Int64
 
-	// Connected hosts gauge
+	// Connected brokers gauge
 	connectedBrokers atomic.Int64
 
 	// Latency tracking (simple histogram buckets)
@@ -43,10 +43,10 @@ type MetricsRecorder interface {
 	// RecordAuthAttempt records an authentication attempt.
 	RecordAuthAttempt(brokerID string, success bool, latency time.Duration)
 
-	// RecordRegistration records a host registration.
+	// RecordRegistration records a broker registration.
 	RecordRegistration(brokerID string)
 
-	// RecordJoin records a host join attempt.
+	// RecordJoin records a broker join attempt.
 	RecordJoin(brokerID string, success bool)
 
 	// RecordRotation records a secret rotation.
@@ -55,7 +55,7 @@ type MetricsRecorder interface {
 	// RecordDispatch records a dispatch attempt to a runtime broker.
 	RecordDispatch(brokerID string, operation string, success bool, latency time.Duration)
 
-	// SetConnectedBrokers sets the current number of connected hosts.
+	// SetConnectedBrokers sets the current number of connected brokers.
 	SetConnectedBrokers(count int64)
 
 	// GetSnapshot returns a snapshot of current metrics.
@@ -83,7 +83,7 @@ type MetricsSnapshot struct {
 	DispatchAttempts int64 `json:"dispatchAttempts"`
 	DispatchFailures int64 `json:"dispatchFailures"`
 
-	// Connected hosts
+	// Connected brokers
 	ConnectedBrokers int64 `json:"connectedBrokers"`
 
 	// Latency percentiles (in milliseconds)
@@ -121,12 +121,12 @@ func (m *BrokerAuthMetrics) RecordAuthAttempt(brokerID string, success bool, lat
 	m.mu.Unlock()
 }
 
-// RecordRegistration records a host registration.
+// RecordRegistration records a broker registration.
 func (m *BrokerAuthMetrics) RecordRegistration(brokerID string) {
 	m.registrations.Add(1)
 }
 
-// RecordJoin records a host join attempt.
+// RecordJoin records a broker join attempt.
 func (m *BrokerAuthMetrics) RecordJoin(brokerID string, success bool) {
 	m.joins.Add(1)
 	if !success {
@@ -147,7 +147,7 @@ func (m *BrokerAuthMetrics) RecordDispatch(brokerID string, operation string, su
 	}
 }
 
-// SetConnectedBrokers sets the current number of connected hosts.
+// SetConnectedBrokers sets the current number of connected brokers.
 func (m *BrokerAuthMetrics) SetConnectedBrokers(count int64) {
 	m.connectedBrokers.Store(count)
 }
