@@ -753,10 +753,14 @@ func runHubBrokers(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	fmt.Printf("%-36s  %-20s  %-10s  %s\n", "ID", "NAME", "STATUS", "MODE")
-	fmt.Printf("%-36s  %-20s  %-10s  %s\n", "------------------------------------", "--------------------", "----------", "----------")
+	fmt.Printf("%-36s  %-20s  %-10s  %-15s  %s\n", "ID", "NAME", "STATUS", "LAST SEEN", "MODE")
+	fmt.Printf("%-36s  %-20s  %-10s  %-15s  %s\n", "------------------------------------", "--------------------", "----------", "---------------", "----------")
 	for _, h := range resp.Brokers {
-		fmt.Printf("%-36s  %-20s  %-10s  %s\n", h.ID, truncate(h.Name, 20), h.Status, h.Mode)
+		lastSeen := "-"
+		if !h.LastHeartbeat.IsZero() {
+			lastSeen = formatRelativeTime(h.LastHeartbeat)
+		}
+		fmt.Printf("%-36s  %-20s  %-10s  %-15s  %s\n", h.ID, truncate(h.Name, 20), h.Status, lastSeen, h.Mode)
 	}
 
 	return nil
@@ -774,6 +778,23 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen-3] + "..."
+}
+
+func formatRelativeTime(t time.Time) string {
+	if t.IsZero() {
+		return "never"
+	}
+	d := time.Since(t)
+	if d < time.Minute {
+		return "just now"
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	}
+	if d < 24*time.Hour {
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	}
+	return fmt.Sprintf("%dd ago", int(d.Hours()/24))
 }
 
 func runHubEnable(cmd *cobra.Command, args []string) error {
