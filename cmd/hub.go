@@ -48,11 +48,21 @@ var hubStatusCmd = &cobra.Command{
 
 // hubGrovesCmd lists groves on the Hub
 var hubGrovesCmd = &cobra.Command{
-	Use:     "groves",
+	Use:     "groves [grove-name]",
 	Aliases: []string{"grove"},
 	Short:   "List groves on the Hub",
-	Long:    `List groves registered on the Hub that you have access to.`,
-	RunE:    runHubGroves,
+	Long: `List groves registered on the Hub that you have access to.
+
+If a grove name is provided, shows detailed information for that grove.
+
+Examples:
+  # List all groves
+  scion hub groves
+
+  # Show info for a specific grove
+  scion hub grove my-project`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runHubGroves,
 }
 
 // hubGrovesInfoCmd shows detailed information about a grove
@@ -675,6 +685,11 @@ func getGroveContextJSON(client hubclient.Client, grovePath string, isGlobal boo
 }
 
 func runHubGroves(cmd *cobra.Command, args []string) error {
+	// If a grove name is provided, show info for that grove
+	if len(args) == 1 {
+		return runHubGrovesInfo(cmd, args)
+	}
+
 	// Resolve grove path to find project settings
 	resolvedPath, _, err := config.ResolveGrovePath(grovePath)
 	if err != nil {
