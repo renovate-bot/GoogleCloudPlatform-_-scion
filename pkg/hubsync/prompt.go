@@ -165,3 +165,142 @@ func ShowMatchingGrovesPrompt(groveName string, matches []GroveMatch, autoConfir
 		return GroveChoiceLink, matches[choice-1].ID
 	}
 }
+
+// ShowBrokerRegistrationPrompt displays the broker registration confirmation.
+// Returns true if the user confirms, false otherwise.
+func ShowBrokerRegistrationPrompt(endpoint string, autoConfirm bool) bool {
+	fmt.Println()
+	fmt.Println("This will register this host as a Runtime Broker with the Hub.")
+	fmt.Printf("Hub endpoint: %s\n", endpoint)
+	fmt.Println()
+	fmt.Println("The broker will be able to:")
+	fmt.Println("  - Execute agents on behalf of the Hub")
+	fmt.Println("  - Receive commands via the control channel")
+	fmt.Println("  - Report agent status via heartbeats")
+	fmt.Println()
+	return ConfirmAction("Continue with broker registration?", true, autoConfirm)
+}
+
+// ShowBrokerDeregistrationPrompt displays the broker deregistration warning.
+// Shows list of groves the broker contributes to.
+// Returns true if the user confirms, false otherwise.
+func ShowBrokerDeregistrationPrompt(brokerID string, groves []string, autoConfirm bool) bool {
+	fmt.Println()
+	fmt.Println("This will remove this host's broker registration from the Hub.")
+	fmt.Printf("Broker ID: %s\n", brokerID)
+	fmt.Println()
+
+	if len(groves) > 0 {
+		fmt.Printf("This broker contributes to %d grove(s):\n", len(groves))
+		for _, g := range groves {
+			fmt.Printf("  - %s\n", g)
+		}
+		fmt.Println()
+		fmt.Println("The broker will be removed from ALL groves it contributes to.")
+	}
+
+	fmt.Println()
+	// Default NO for safety - destructive operation
+	return ConfirmAction("Continue with deregistration?", false, autoConfirm)
+}
+
+// ShowGroveLinkPrompt displays the grove link confirmation.
+// Returns true if the user confirms, false otherwise.
+func ShowGroveLinkPrompt(groveName, endpoint string, autoConfirm bool) bool {
+	fmt.Println()
+	fmt.Printf("This will link grove '%s' to the Hub.\n", groveName)
+	fmt.Printf("Hub endpoint: %s\n", endpoint)
+	fmt.Println()
+	fmt.Println("When linked:")
+	fmt.Println("  - Agent operations will be coordinated through the Hub")
+	fmt.Println("  - Agents can be managed from any connected broker")
+	fmt.Println("  - Local agents will be synced to the Hub")
+	fmt.Println()
+	return ConfirmAction("Continue with linking?", true, autoConfirm)
+}
+
+// ShowGroveUnlinkPrompt displays the grove unlink confirmation.
+// Returns true if the user confirms, false otherwise.
+func ShowGroveUnlinkPrompt(groveName string, autoConfirm bool) bool {
+	fmt.Println()
+	fmt.Printf("This will unlink grove '%s' from the Hub locally.\n", groveName)
+	fmt.Println()
+	fmt.Println("The grove and its agents will remain on the Hub for other brokers.")
+	fmt.Println("You can re-link this grove later with 'scion hub link'.")
+	fmt.Println()
+	// Default NO - user should be sure they want to unlink
+	return ConfirmAction("Continue with unlinking?", false, autoConfirm)
+}
+
+// LinkOrDisableChoice represents the user's choice when grove is not linked.
+type LinkOrDisableChoice int
+
+const (
+	// LinkOrDisableCancel means the user cancelled the operation.
+	LinkOrDisableCancel LinkOrDisableChoice = iota
+	// LinkOrDisableLink means the user chose to link the grove.
+	LinkOrDisableLink
+	// LinkOrDisableDisable means the user chose to disable Hub.
+	LinkOrDisableDisable
+)
+
+// ShowLinkOrDisablePrompt displays a prompt when Hub is enabled but grove is not linked.
+// Returns the user's choice.
+func ShowLinkOrDisablePrompt(groveName string, autoConfirm bool) LinkOrDisableChoice {
+	fmt.Println()
+	fmt.Println("Hub is enabled but this grove is not linked.")
+	fmt.Println()
+	fmt.Println("Choose an option:")
+	fmt.Println("  [1] Link and sync grove now")
+	fmt.Println("  [2] Disable Hub for this grove")
+	fmt.Println()
+
+	if autoConfirm {
+		// Auto-confirm defaults to linking
+		fmt.Println("Auto-selecting: Link and sync grove")
+		return LinkOrDisableLink
+	}
+
+	reader := bufio.NewReader(os.Stdin)
+	for {
+		fmt.Print("Enter choice (or 'c' to cancel): ")
+		input, err := reader.ReadString('\n')
+		if err != nil {
+			return LinkOrDisableCancel
+		}
+
+		input = strings.TrimSpace(strings.ToLower(input))
+		if input == "c" || input == "cancel" {
+			return LinkOrDisableCancel
+		}
+
+		choice := 0
+		if _, err := fmt.Sscanf(input, "%d", &choice); err != nil {
+			fmt.Println("Invalid choice. Please enter 1 or 2.")
+			continue
+		}
+
+		switch choice {
+		case 1:
+			return LinkOrDisableLink
+		case 2:
+			return LinkOrDisableDisable
+		default:
+			fmt.Println("Invalid choice. Please enter 1 or 2.")
+		}
+	}
+}
+
+// ShowSyncAfterLinkPrompt asks if user wants to sync agents after linking.
+// Returns true if the user confirms, false otherwise.
+func ShowSyncAfterLinkPrompt(autoConfirm bool) bool {
+	return ConfirmAction("Grove linked. Sync agents now?", true, autoConfirm)
+}
+
+// ShowLinkBeforeRegisterPrompt asks if user wants to link grove before registering broker.
+// Returns true if the user confirms, false otherwise.
+func ShowLinkBeforeRegisterPrompt(groveName string, autoConfirm bool) bool {
+	fmt.Println()
+	fmt.Printf("Grove '%s' is not linked to the Hub.\n", groveName)
+	return ConfirmAction("Link it first?", true, autoConfirm)
+}

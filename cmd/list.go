@@ -12,6 +12,7 @@ import (
 	"github.com/ptone/scion-agent/pkg/api"
 	"github.com/ptone/scion-agent/pkg/config"
 	"github.com/ptone/scion-agent/pkg/hubclient"
+	"github.com/ptone/scion-agent/pkg/hubsync"
 	"github.com/ptone/scion-agent/pkg/runtime"
 	"github.com/spf13/cobra"
 )
@@ -29,7 +30,16 @@ var listCmd = &cobra.Command{
 		// Check if Hub should be used
 		hubCtx, err := CheckHubAvailability(grovePath)
 		if err != nil {
-			return err
+			// Check if this is because Hub is enabled but grove not linked
+			if handleUnlinkedGrovePrompt(cmd, args) {
+				// User chose to link or disable - retry
+				hubCtx, err = CheckHubAvailability(grovePath)
+				if err != nil {
+					return err
+				}
+			} else {
+				return err
+			}
 		}
 
 		if hubCtx != nil {
@@ -186,6 +196,115 @@ func displayAgents(agents []api.AgentInfo, all bool) error {
 	}
 	w.Flush()
 	return nil
+}
+
+// handleUnlinkedGrovePrompt checks if the error is due to an unlinked grove and prompts the user.
+// Returns true if the user made a choice that might resolve the issue (link or disable).
+func handleUnlinkedGrovePrompt(cmd *cobra.Command, args []string) bool {
+	// Resolve grove path to check settings
+	resolvedPath, isGlobal, err := config.ResolveGrovePath(grovePath)
+	if err != nil {
+		return false
+	}
+
+	settings, err := config.LoadSettings(resolvedPath)
+	if err != nil {
+		return false
+	}
+
+	// Only handle this case if Hub is enabled but grove is not linked
+	if !settings.IsHubEnabled() {
+		return false
+	}
+
+	// Check if grove is actually registered on the Hub
+	endpoint := GetHubEndpoint(settings)
+	if endpoint == "" {
+		return false
+	}
+
+	client, err := getHubClient(settings)
+	if err != nil {
+		return false
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Check Hub connectivity first
+	if _, err := client.Health(ctx); err != nil {
+		return false // Hub not reachable, different error
+	}
+
+	// Check if grove is registered
+	groveID := settings.GroveID
+	if groveID == "" {
+		groveID = config.GenerateGroveIDForDir(resolvedPath)
+	}
+
+	linked, err := isGroveLinkedToHub(ctx, client, groveID)
+	if err != nil || linked {
+		return false // Error checking or grove is already linked
+	}
+
+	// Get grove name for display
+	var groveName string
+	if isGlobal {
+		groveName = "global"
+	} else {
+		groveName = config.GetGroveName(resolvedPath)
+	}
+
+	// Show prompt
+	choice := hubsync.ShowLinkOrDisablePrompt(groveName, autoConfirm)
+
+	switch choice {
+	case hubsync.LinkOrDisableLink:
+		// Run the link command
+		if err := runHubLink(cmd, args); err != nil {
+			fmt.Printf("Failed to link grove: %v\n", err)
+			return false
+		}
+		return true
+	case hubsync.LinkOrDisableDisable:
+		// Disable Hub for this grove
+		if err := config.UpdateSetting(resolvedPath, "hub.enabled", "false", isGlobal); err != nil {
+			fmt.Printf("Failed to disable Hub: %v\n", err)
+			return false
+		}
+		fmt.Println("Hub integration disabled for this grove.")
+		return true
+	default:
+		return false
+	}
+}
+
+// isGroveLinkedToHub checks if a grove is registered on the Hub.
+func isGroveLinkedToHub(ctx context.Context, client hubclient.Client, groveID string) (bool, error) {
+	if groveID == "" {
+		return false, nil
+	}
+
+	_, err := client.Groves().Get(ctx, groveID)
+	if err != nil {
+		errStr := err.Error()
+		if containsStr(errStr, "404") || containsStr(errStr, "not found") {
+			return false, nil
+		}
+		return false, err
+	}
+
+	return true, nil
+}
+
+// containsStr is a simple case-sensitive substring check.
+func containsStr(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
 
 func init() {
