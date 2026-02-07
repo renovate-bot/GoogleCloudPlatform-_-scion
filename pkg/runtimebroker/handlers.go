@@ -246,6 +246,10 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if s.config.BrokerName != "" {
+		env["SCION_BROKER_NAME"] = s.config.BrokerName
+	}
+
 	// Pass debug mode to the container so sciontool logs debug info
 	if s.config.Debug {
 		env["SCION_DEBUG"] = "1"

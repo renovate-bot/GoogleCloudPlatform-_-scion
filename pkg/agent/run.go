@@ -171,13 +171,26 @@ func (m *AgentManager) Start(ctx context.Context, opts api.StartOptions) (*api.A
 		}
 	}
 
-	agentEnv, envWarnings := buildAgentEnv(finalScionCfg, opts.Env)
-	warnings = append(warnings, envWarnings...)
-
 	template := ""
 	if finalScionCfg != nil && finalScionCfg.Info != nil {
 		template = finalScionCfg.Info.Template
 	}
+
+	if opts.Env == nil {
+		opts.Env = make(map[string]string)
+	}
+	opts.Env["SCION_AGENT_NAME"] = opts.Name
+	if template != "" {
+		opts.Env["SCION_TEMPLATE_NAME"] = template
+	} else {
+		opts.Env["SCION_TEMPLATE_NAME"] = "custom"
+	}
+	if _, ok := opts.Env["SCION_BROKER_NAME"]; !ok {
+		opts.Env["SCION_BROKER_NAME"] = "local"
+	}
+
+	agentEnv, envWarnings := buildAgentEnv(finalScionCfg, opts.Env)
+	warnings = append(warnings, envWarnings...)
 
 	// Determine the effective workspace path. If agentWorkspace is empty but we have
 	// a volume mounted to /workspace (e.g., shared worktree case), use that source path.
