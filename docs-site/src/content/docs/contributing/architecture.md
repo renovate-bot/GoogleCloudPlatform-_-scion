@@ -20,38 +20,39 @@ Both modes share the same core abstractions (Groves, Agents, Templates, Harnesse
 
 ## System Architecture Diagram
 
-```
-Solo Mode                              Hosted Mode
-==========                             ===========
+```d2
+direction: right
+solo: Solo Mode {
+  cli: scion CLI
+  manager: Agent Manager
+  runtime: Container Runtime {
+    tooltip: Docker / Apple / K8s
+  }
+  agent: Agent Container
 
- ┌─────────┐                           ┌───────────┐
- │ scion   │                           │  scion    │
- │ CLI     │                           │  CLI      │
- └────┬────┘                           └─────┬─────┘
-      │                                      │ REST / WS
-      │ direct                               │
-      │                                ┌─────▼──────┐    ┌──────────────┐
- ┌────▼──────┐                         │  Scion Hub │◄──►│  Web         │
- │  Agent    │                         │  (API +    │    │  Dashboard   │
- │  Manager  │                         │   Store)   │    └──────────────┘
- └────┬──────┘                         └─────┬──────┘
-      │                                      │ HTTP / WebSocket
-      │                                      │ Control Channel
- ┌────▼──────┐                         ┌─────▼──────────┐
- │ Container │                         │ Runtime Broker  │
- │ Runtime   │                         │ (Agent Manager  │
- │ (Docker/  │                         │  + Runtime)     │
- │  Apple/   │                         └─────┬───────────┘
- │  K8s)     │                               │
- └────┬──────┘                         ┌─────▼──────┐
-      │                                │  Container  │
- ┌────▼────┐                           │  Runtime    │
- │ Agent   │                           └─────┬──────┘
- │ Container│                                │
- └─────────┘                           ┌─────▼─────┐
-                                       │   Agent    │
-                                       │ Container  │
-                                       └───────────┘
+  cli -> manager: direct
+  manager -> runtime
+  runtime -> agent
+}
+
+hosted: Hosted Mode {
+  cli: scion CLI
+  hub: Scion Hub {
+    tooltip: API + Store
+  }
+  web: Web Dashboard
+  broker: Runtime Broker {
+    tooltip: Agent Manager + Runtime
+  }
+  runtime: Container Runtime
+  agent: Agent Container
+
+  cli -> hub: REST / WS
+  hub <-> web
+  hub -> broker: HTTP / WebSocket\nControl Channel
+  broker -> runtime
+  runtime -> agent
+}
 ```
 
 ---
@@ -215,13 +216,36 @@ pkg/
 
 The dependency graph flows strictly downward:
 
-```
-cmd/        (CLI commands - Cobra)
- └── pkg/agent   (orchestration)
-      ├── pkg/config   (settings, templates, paths)
-      ├── pkg/harness  (LLM adapters)
-      └── pkg/runtime  (container lifecycle)
-           └── pkg/api (shared types)
+```d2
+cmd: cmd/ {
+  tooltip: CLI commands - Cobra
+}
+
+agent: pkg/agent {
+  tooltip: orchestration
+}
+
+config: pkg/config {
+  tooltip: settings, templates, paths
+}
+
+harness: pkg/harness {
+  tooltip: LLM adapters
+}
+
+runtime: pkg/runtime {
+  tooltip: container lifecycle
+}
+
+api: pkg/api {
+  tooltip: shared types
+}
+
+cmd -> agent
+agent -> config
+agent -> harness
+agent -> runtime
+runtime -> api
 ```
 
 Hub and Runtime Broker servers have their own entry points but reuse the same `agent`, `runtime`, and `config` packages.
@@ -349,9 +373,16 @@ The Runtime Broker (`pkg/runtimebroker`) is a compute node that executes agents 
 
 ### Communication with the Hub
 
-```
-Hub ──── HTTP (direct) ────► Runtime Broker   (when broker is reachable)
-Hub ◄─── WebSocket ─────────► Runtime Broker   (control channel, always)
+```d2
+hub: Hub
+broker: Runtime Broker
+
+hub -> broker: HTTP (direct) {
+  tooltip: when broker is reachable
+}
+hub <-> broker: WebSocket {
+  tooltip: control channel, always
+}
 ```
 
 The control channel uses a custom WebSocket protocol (`pkg/wsprotocol`) with the following message types:
@@ -470,14 +501,19 @@ Each agent runs in its own container with:
 
 ### Credential Flow
 
-```
-Host ──► CLI discovers credentials (env vars, config files)
-         │
-         └──► Harness.DiscoverAuth() / AuthProvider.GetAuthConfig()
-              │
-              └──► Injected as container env vars at launch time
-                   │
-                   └──► Available inside the container as $ANTHROPIC_API_KEY, etc.
+```d2
+host: Host
+cli: CLI {
+  tooltip: discovers credentials (env vars, config files)
+}
+harness: Harness.DiscoverAuth()\nAuthProvider.GetAuthConfig()
+container: Container {
+  tooltip: Available as $ANTHROPIC_API_KEY, etc.
+}
+
+host -> cli
+cli -> harness
+harness -> container: Injected as env vars\nat launch time
 ```
 
 In Hosted mode, credentials can also be:
@@ -494,11 +530,11 @@ security error: '<path>/agents/' must be in .gitignore when using a project-loca
 
 ### Hub Authentication Architecture
 
-```
-User ──► OAuth/DevAuth ──► JWT (User Token) ──► Hub API
-Agent ──► JWT (Agent Token, scoped) ──► Hub API (limited scopes)
-Broker ──► HMAC-SHA256 Signed Request ──► Hub API
-CLI ──► API Key (sk_live_...) ──► Hub API
+```d2
+User -> Hub API: OAuth/DevAuth -> JWT (User Token)
+Agent -> Hub API: JWT (Agent Token, scoped)
+Broker -> Hub API: HMAC-SHA256 Signed Request
+CLI -> Hub API: API Key (sk_live_...)
 ```
 
 ---
@@ -507,35 +543,20 @@ CLI ──► API Key (sk_live_...) ──► Hub API
 
 The following sequence traces a complete agent creation through the Hosted architecture:
 
-```
-CLI                    Hub                    Runtime Broker
- │                      │                          │
- │ POST /groves/{id}/   │                          │
- │   agents             │                          │
- │─────────────────────►│                          │
- │                      │ 1. Validate auth         │
- │                      │ 2. Resolve template      │
- │                      │ 3. Select broker         │
- │                      │ 4. Resolve env/secrets   │
- │                      │ 5. Create agent record   │
- │                      │    (status: provisioning) │
- │                      │                          │
- │                      │ POST /api/v1/agents      │
- │                      │ (HTTP or via WS tunnel)  │
- │                      │─────────────────────────►│
- │                      │                          │ 6. Hydrate template
- │                      │                          │ 7. ProvisionAgent()
- │                      │                          │ 8. Runtime.Run()
- │                      │                          │
- │                      │     AgentResponse        │
- │                      │◄─────────────────────────│
- │                      │ 9. Update agent record   │
- │                      │    (status: running)     │
- │                      │                          │
- │   AgentInfo          │                          │
- │◄─────────────────────│                          │
- │                      │                          │
- │                      │◄── heartbeat (periodic) ─│
+```d2
+shape: sequence_diagram
+CLI: CLI
+Hub: Hub
+Broker: Runtime Broker
+
+CLI -> Hub: POST /groves/{id}/agents
+Hub -> Hub: 1. Validate auth\n2. Resolve template\n3. Select broker\n4. Resolve env/secrets\n5. Create agent record (provisioning)
+Hub -> Broker: POST /api/v1/agents\n(HTTP or via WS tunnel)
+Broker -> Broker: 6. Hydrate template\n7. ProvisionAgent()\n8. Runtime.Run()
+Broker -> Hub: AgentResponse
+Hub -> Hub: 9. Update agent record (running)
+Hub -> CLI: AgentInfo
+Broker -> Hub: heartbeat (periodic)
 ```
 
 ---
