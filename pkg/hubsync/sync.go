@@ -302,6 +302,13 @@ func EnsureHubReady(grovePath string, opts EnsureHubReadyOptions) (*HubContext, 
 		}
 	}
 
+	// Ensure the local broker is registered as a provider with the correct local path.
+	// Auto-provide may have linked the broker without a local_path, so we always
+	// check and update if needed.
+	if err := ensureProviderPath(context.Background(), hubCtx); err != nil {
+		debugf("Warning: failed to ensure provider path: %v", err)
+	}
+
 	// Skip sync if requested
 	if opts.SkipSync {
 		return hubCtx, nil
@@ -648,6 +655,52 @@ func GetLocalAgents(grovePath string) ([]string, error) {
 }
 
 // isGroveRegistered checks if the grove is registered with the Hub.
+// ensureProviderPath checks if the local broker is a provider for the grove
+// and ensures its local_path is set. Auto-provide creates provider records without
+// a local_path, which causes agents to be provisioned in the global grove.
+func ensureProviderPath(ctx context.Context, hubCtx *HubContext) error {
+	if hubCtx.BrokerID == "" || hubCtx.GroveID == "" || hubCtx.GrovePath == "" {
+		return nil
+	}
+
+	ctxTimeout, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	// Check existing providers to see if our broker already has the correct path
+	providersResp, err := hubCtx.Client.Groves().ListProviders(ctxTimeout, hubCtx.GroveID)
+	if err != nil {
+		return fmt.Errorf("failed to list providers: %w", err)
+	}
+
+	for _, p := range providersResp.Providers {
+		if p.BrokerID == hubCtx.BrokerID {
+			if p.LocalPath == hubCtx.GrovePath {
+				// Already correct
+				debugf("Provider path already set correctly: %s", p.LocalPath)
+				return nil
+			}
+			// Path is missing or wrong — update it
+			debugf("Updating provider path from %q to %q", p.LocalPath, hubCtx.GrovePath)
+			break
+		}
+	}
+
+	// Add/update the provider with the correct local path
+	ctxAdd, cancelAdd := context.WithTimeout(ctx, 10*time.Second)
+	defer cancelAdd()
+
+	_, err = hubCtx.Client.Groves().AddProvider(ctxAdd, hubCtx.GroveID, &hubclient.AddProviderRequest{
+		BrokerID:  hubCtx.BrokerID,
+		LocalPath: hubCtx.GrovePath,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update provider path: %w", err)
+	}
+
+	debugf("Provider path set to %s for broker %s", hubCtx.GrovePath, hubCtx.BrokerID)
+	return nil
+}
+
 func isGroveRegistered(ctx context.Context, hubCtx *HubContext) (bool, error) {
 	ctxTimeout, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()

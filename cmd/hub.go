@@ -954,7 +954,11 @@ func runHubGrovesInfo(cmd *cobra.Command, args []string) error {
 			if p.BrokerID == grove.DefaultRuntimeBrokerID {
 				defaultIndicator = " (default)"
 			}
-			fmt.Printf("  - %s %s%s\n", p.BrokerName, statusIndicator, defaultIndicator)
+			if p.LocalPath != "" {
+				fmt.Printf("  - %s %s%s\n    Path: %s\n", p.BrokerName, statusIndicator, defaultIndicator, p.LocalPath)
+			} else {
+				fmt.Printf("  - %s %s%s\n", p.BrokerName, statusIndicator, defaultIndicator)
+			}
 		}
 	} else {
 		fmt.Println()

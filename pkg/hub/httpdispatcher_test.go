@@ -53,6 +53,7 @@ type mockRuntimeBrokerClient struct {
 	lastAgentID    string
 	lastMessage    string
 	lastInterrupt  bool
+	lastCreateReq  *RemoteCreateAgentRequest
 	lastDeleteOpts struct{ deleteFiles, removeBranch bool }
 	returnErr      error
 }
@@ -61,6 +62,7 @@ func (m *mockRuntimeBrokerClient) CreateAgent(ctx context.Context, brokerID, bro
 	m.createCalled = true
 	m.lastBrokerID = brokerID
 	m.lastEndpoint = brokerEndpoint
+	m.lastCreateReq = req
 	if m.returnErr != nil {
 		return nil, m.returnErr
 	}
@@ -417,5 +419,131 @@ func TestHTTPRuntimeBrokerClient_MessageAgent(t *testing.T) {
 	err := client.MessageAgent(context.Background(), "host-1", server.URL, "test-agent", "Hello!", true)
 	if err != nil {
 		t.Fatalf("MessageAgent failed: %v", err)
+	}
+}
+
+func TestHTTPAgentDispatcher_DispatchAgentCreate_WithGroveProviderPath(t *testing.T) {
+	ctx := context.Background()
+	memStore := createTestStore(t)
+
+	// Create the grove (required by FK constraint)
+	grove := &store.Grove{
+		ID:   "grove-1",
+		Name: "test-grove",
+		Slug: "test-grove",
+	}
+	if err := memStore.CreateGrove(ctx, grove); err != nil {
+		t.Fatalf("failed to create grove: %v", err)
+	}
+
+	// Create a runtime broker
+	broker := &store.RuntimeBroker{
+		ID:       "broker-1",
+		Name:     "test-broker",
+		Slug:     "test-broker",
+		Endpoint: "http://localhost:9800",
+		Status:   store.BrokerStatusOnline,
+	}
+	if err := memStore.CreateRuntimeBroker(ctx, broker); err != nil {
+		t.Fatalf("failed to create runtime broker: %v", err)
+	}
+
+	// Add a grove provider record WITH a local path
+	provider := &store.GroveProvider{
+		GroveID:    "grove-1",
+		BrokerID:   "broker-1",
+		BrokerName: "test-broker",
+		LocalPath:  "/home/user/projects/myproject/.scion",
+		Status:     store.BrokerStatusOnline,
+	}
+	if err := memStore.AddGroveProvider(ctx, provider); err != nil {
+		t.Fatalf("failed to add grove provider: %v", err)
+	}
+
+	mockClient := &mockRuntimeBrokerClient{}
+	dispatcher := NewHTTPAgentDispatcherWithClient(memStore, mockClient, false)
+
+	agent := &store.Agent{
+		ID:              "agent-1",
+		Name:            "test-agent",
+		Slug:            "test-agent",
+		GroveID:         "grove-1",
+		RuntimeBrokerID: "broker-1",
+	}
+
+	err := dispatcher.DispatchAgentCreate(ctx, agent)
+	if err != nil {
+		t.Fatalf("DispatchAgentCreate failed: %v", err)
+	}
+
+	if !mockClient.createCalled {
+		t.Fatal("expected CreateAgent to be called")
+	}
+	if mockClient.lastCreateReq.GrovePath != "/home/user/projects/myproject/.scion" {
+		t.Errorf("expected GrovePath '/home/user/projects/myproject/.scion', got '%s'", mockClient.lastCreateReq.GrovePath)
+	}
+}
+
+func TestHTTPAgentDispatcher_DispatchAgentCreate_WithoutGroveProviderPath(t *testing.T) {
+	ctx := context.Background()
+	memStore := createTestStore(t)
+
+	// Create the grove (required by FK constraint)
+	grove := &store.Grove{
+		ID:   "grove-1",
+		Name: "test-grove",
+		Slug: "test-grove",
+	}
+	if err := memStore.CreateGrove(ctx, grove); err != nil {
+		t.Fatalf("failed to create grove: %v", err)
+	}
+
+	// Create a runtime broker
+	broker := &store.RuntimeBroker{
+		ID:       "broker-1",
+		Name:     "test-broker",
+		Slug:     "test-broker",
+		Endpoint: "http://localhost:9800",
+		Status:   store.BrokerStatusOnline,
+	}
+	if err := memStore.CreateRuntimeBroker(ctx, broker); err != nil {
+		t.Fatalf("failed to create runtime broker: %v", err)
+	}
+
+	// Add a grove provider record WITHOUT a local path (simulating auto-provide)
+	provider := &store.GroveProvider{
+		GroveID:    "grove-1",
+		BrokerID:   "broker-1",
+		BrokerName: "test-broker",
+		LocalPath:  "",
+		Status:     store.BrokerStatusOnline,
+		LinkedBy:   "auto-provide",
+	}
+	if err := memStore.AddGroveProvider(ctx, provider); err != nil {
+		t.Fatalf("failed to add grove provider: %v", err)
+	}
+
+	mockClient := &mockRuntimeBrokerClient{}
+	dispatcher := NewHTTPAgentDispatcherWithClient(memStore, mockClient, false)
+
+	agent := &store.Agent{
+		ID:              "agent-1",
+		Name:            "test-agent",
+		Slug:            "test-agent",
+		GroveID:         "grove-1",
+		RuntimeBrokerID: "broker-1",
+	}
+
+	err := dispatcher.DispatchAgentCreate(ctx, agent)
+	if err != nil {
+		t.Fatalf("DispatchAgentCreate failed: %v", err)
+	}
+
+	if !mockClient.createCalled {
+		t.Fatal("expected CreateAgent to be called")
+	}
+	// When auto-provide didn't set a path, GrovePath should be empty
+	if mockClient.lastCreateReq.GrovePath != "" {
+		t.Errorf("expected empty GrovePath for auto-provided broker, got '%s'", mockClient.lastCreateReq.GrovePath)
 	}
 }
