@@ -54,6 +54,7 @@ func init() {
 
 	startCmd.Flags().StringVar(&runtimeBrokerID, "broker", "", "Preferred runtime broker ID or name")
 	startCmd.Flags().StringVar(&harnessConfigFlag, "harness-config", "", "Named harness configuration to use")
+	startCmd.Flags().StringVar(&harnessConfigFlag, "harness", "", "Named harness configuration to use (alias for --harness-config)")
 
 	// Template resolution flags for Hub mode (Section 9.4)
 	startCmd.Flags().BoolVar(&uploadTemplate, "upload-template", false, "Automatically upload local template to Hub if not found")

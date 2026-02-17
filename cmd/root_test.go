@@ -305,6 +305,22 @@ func TestNonInteractiveFlagRegistered(t *testing.T) {
 	assert.NotNil(t, yesFlag, "--yes flag should be registered")
 }
 
+func TestHarnessConfigAliasRegistered(t *testing.T) {
+	// Verify --harness-config and --harness flags exist on startCmd
+	hcFlag := startCmd.Flags().Lookup("harness-config")
+	assert.NotNil(t, hcFlag, "--harness-config flag should be registered on start")
+
+	hFlag := startCmd.Flags().Lookup("harness")
+	assert.NotNil(t, hFlag, "--harness flag should be registered on start")
+
+	// Verify --harness-config and --harness flags exist on createCmd
+	hcFlag = createCmd.Flags().Lookup("harness-config")
+	assert.NotNil(t, hcFlag, "--harness-config flag should be registered on create")
+
+	hFlag = createCmd.Flags().Lookup("harness")
+	assert.NotNil(t, hFlag, "--harness flag should be registered on create")
+}
+
 func TestIsLocalEndpoint(t *testing.T) {
 	tests := []struct {
 		endpoint string
