@@ -17,9 +17,7 @@ package util
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
-	"time"
 )
 
 func TestCopyFile(t *testing.T) {
@@ -180,8 +178,8 @@ func TestRemoveAllSafe_BasicTree(t *testing.T) {
 		}
 	}
 
-	if err := removeAllSafe(target); err != nil {
-		t.Fatalf("removeAllSafe failed: %v", err)
+	if err := RemoveAllSafe(target); err != nil {
+		t.Fatalf("RemoveAllSafe failed: %v", err)
 	}
 	if _, err := os.Stat(target); !os.IsNotExist(err) {
 		t.Error("expected target to be fully removed")
@@ -263,8 +261,8 @@ func TestRemoveAllSafe_WithDanglingSymlinks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := removeAllSafe(target); err != nil {
-		t.Fatalf("removeAllSafe failed: %v", err)
+	if err := RemoveAllSafe(target); err != nil {
+		t.Fatalf("RemoveAllSafe failed: %v", err)
 	}
 	if _, err := os.Stat(target); !os.IsNotExist(err) {
 		t.Error("expected target to be fully removed")
@@ -286,56 +284,15 @@ func TestRemoveAllSafe_ReadOnlyFilesAndDirs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := removeAllSafe(target); err != nil {
-		t.Fatalf("removeAllSafe failed: %v", err)
+	if err := RemoveAllSafe(target); err != nil {
+		t.Fatalf("RemoveAllSafe failed: %v", err)
 	}
 	if _, err := os.Stat(target); !os.IsNotExist(err) {
 		t.Error("expected target to be fully removed even with read-only entries")
 	}
 }
 
-func TestRemoveAllAsync_RemovesOriginalPath(t *testing.T) {
-	tmpDir := t.TempDir()
-	target := filepath.Join(tmpDir, "agent-dir")
-	if err := os.MkdirAll(filepath.Join(target, "subdir"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(target, "file.txt"), []byte("data"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(target, "subdir", "nested.txt"), []byte("nested"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := RemoveAllAsync(target); err != nil {
-		t.Fatalf("RemoveAllAsync failed: %v", err)
-	}
-
-	// Original path should be gone immediately (renamed).
-	if _, err := os.Stat(target); !os.IsNotExist(err) {
-		t.Error("expected original path to be gone after RemoveAllAsync")
-	}
-
-	// Wait briefly for background rm to finish, then verify tombstone is gone too.
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		entries, _ := os.ReadDir(tmpDir)
-		found := false
-		for _, e := range entries {
-			if strings.Contains(e.Name(), ".deleting-") {
-				found = true
-				break
-			}
-		}
-		if !found {
-			return // tombstone cleaned up
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	t.Error("tombstone directory was not cleaned up by background rm within timeout")
-}
-
-func TestRemoveAllAsync_WithDanglingSymlink(t *testing.T) {
+func TestRemoveAllSafe_WithDanglingSymlink(t *testing.T) {
 	tmpDir := t.TempDir()
 	target := filepath.Join(tmpDir, "agent-dir")
 	debugDir := filepath.Join(target, ".claude", "debug")
@@ -346,53 +303,15 @@ func TestRemoveAllAsync_WithDanglingSymlink(t *testing.T) {
 	if err := os.Symlink("/nonexistent/container/path/debug.txt", filepath.Join(debugDir, "latest")); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(target, "file.txt"), []byte("data"), 0644); err != nil {
+		t.Fatal(err)
+	}
 
-	if err := RemoveAllAsync(target); err != nil {
-		t.Fatalf("RemoveAllAsync failed: %v", err)
+	if err := RemoveAllSafe(target); err != nil {
+		t.Fatalf("RemoveAllSafe failed: %v", err)
 	}
 
 	if _, err := os.Stat(target); !os.IsNotExist(err) {
-		t.Error("expected original path to be gone after RemoveAllAsync")
-	}
-}
-
-func TestCleanupPendingDeletions(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// Create a couple of fake tombstone directories.
-	tomb1 := filepath.Join(tmpDir, "old-agent.deleting-111")
-	tomb2 := filepath.Join(tmpDir, "other.deleting-222")
-	normal := filepath.Join(tmpDir, "real-agent")
-	for _, d := range []string{tomb1, tomb2, normal} {
-		if err := os.MkdirAll(d, 0755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(filepath.Join(d, "f.txt"), []byte("x"), 0644); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	CleanupPendingDeletions(tmpDir)
-
-	// Wait for background cleanup.
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		_, err1 := os.Stat(tomb1)
-		_, err2 := os.Stat(tomb2)
-		if os.IsNotExist(err1) && os.IsNotExist(err2) {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-
-	if _, err := os.Stat(tomb1); !os.IsNotExist(err) {
-		t.Error("tombstone 1 should be removed")
-	}
-	if _, err := os.Stat(tomb2); !os.IsNotExist(err) {
-		t.Error("tombstone 2 should be removed")
-	}
-	// Normal directory should not be touched.
-	if _, err := os.Stat(normal); err != nil {
-		t.Errorf("normal directory should still exist: %v", err)
+		t.Error("expected target to be fully removed")
 	}
 }

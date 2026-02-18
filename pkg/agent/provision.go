@@ -101,28 +101,15 @@ func DeleteAgentFiles(agentName string, grovePath string, removeBranch bool) (bo
 		}
 	}
 
-	// Phase 2: async directory removal and tombstone cleanup.
-	// All git operations are done, so any autofs stalls from symlink
-	// deletion in background goroutines won't block git commands.
+	// Phase 2: directory removal.
 	for _, agentDir := range dirsToDelete {
 		util.Debugf("delete: removing directory: %s", agentDir)
 		removeStart := time.Now()
-		if err := util.RemoveAllAsync(agentDir); err != nil {
+		if err := util.RemoveAllSafe(agentDir); err != nil {
 			util.Debugf("delete: removal failed in %v: %v", time.Since(removeStart), err)
 			return branchDeleted, fmt.Errorf("failed to remove agent directory: %w", err)
 		}
-		util.Debugf("delete: removal initiated in %v", time.Since(removeStart))
-	}
-
-	// Clean up tombstones from previous async deletions.
-	// This runs after git operations and agent directory renaming,
-	// so any autofs stalls happen in background goroutines that don't
-	// block the visible delete operation.
-	for _, dir := range agentsDirs {
-		util.Debugf("delete: cleaning up pending deletions in %s", dir)
-		cleanupStart := time.Now()
-		util.CleanupPendingDeletions(dir)
-		util.Debugf("delete: pending deletion cleanup completed in %v", time.Since(cleanupStart))
+		util.Debugf("delete: removal completed in %v", time.Since(removeStart))
 	}
 
 	return branchDeleted, nil

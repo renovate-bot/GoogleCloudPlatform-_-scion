@@ -15,10 +15,8 @@
 package util
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
@@ -90,29 +88,7 @@ func MakeWritableRecursive(path string) error {
 	return err
 }
 
-// RemoveAllAsync removes a directory tree without blocking the caller.
-// It renames the directory to a unique tombstone name (an instant metadata
-// operation on the same filesystem), then runs the actual deletion in a
-// background goroutine using removeAllSafe. This avoids blocking on
-// slow-to-delete files such as symlinks pointing to container-internal
-// paths (e.g. /home/scion/...) which can trigger macOS autofs timeouts.
-func RemoveAllAsync(path string) error {
-	tombstone := fmt.Sprintf("%s.deleting-%d", path, time.Now().UnixNano())
-	if err := os.Rename(path, tombstone); err != nil {
-		Debugf("RemoveAllAsync: rename failed, falling back to sync removal: %v", err)
-		return removeAllSafe(path)
-	}
-
-	Debugf("RemoveAllAsync: renamed %s -> %s", filepath.Base(path), filepath.Base(tombstone))
-	go func() {
-		if err := removeAllSafe(tombstone); err != nil {
-			Debugf("RemoveAllAsync: background removal failed: %v", err)
-		}
-	}()
-	return nil
-}
-
-// removeAllSafe removes a directory tree in a single pass, handling
+// RemoveAllSafe removes a directory tree in a single pass, handling
 // symlinks and permissions inline to avoid the overhead of separate walks.
 //
 // It works in three phases:
@@ -126,8 +102,8 @@ func RemoveAllAsync(path string) error {
 // Symlink removal uses removeSymlinkSafe which avoids triggering macOS
 // autofs timeouts on dangling symlinks pointing to container-internal
 // paths (e.g. /home/scion/...).
-func removeAllSafe(root string) error {
-	Debugf("removeAllSafe: starting removal of %s", root)
+func RemoveAllSafe(root string) error {
+	Debugf("RemoveAllSafe: starting removal of %s", root)
 	start := time.Now()
 	var files []string
 	var dirs []string
@@ -142,7 +118,7 @@ func removeAllSafe(root string) error {
 		currentDir := filepath.Dir(path)
 		if currentDir != lastDir {
 			if lastDir != "" && time.Since(dirStart) > 100*time.Millisecond {
-				Debugf("removeAllSafe: slow dir listing+processing: %v for %s", time.Since(dirStart), filepath.Base(lastDir))
+				Debugf("RemoveAllSafe: slow dir listing+processing: %v for %s", time.Since(dirStart), filepath.Base(lastDir))
 			}
 			lastDir = currentDir
 			dirStart = time.Now()
@@ -199,7 +175,7 @@ func removeAllSafe(root string) error {
 	if walkErr != nil && firstErr == nil {
 		firstErr = walkErr
 	}
-	Debugf("removeAllSafe: walk completed in %v (symlinks: %d, files: %d, dirs: %d)", time.Since(start), symlinkCount, len(files), len(dirs))
+	Debugf("RemoveAllSafe: walk completed in %v (symlinks: %d, files: %d, dirs: %d)", time.Since(start), symlinkCount, len(files), len(dirs))
 
 	// Phase 2: remove regular files.
 	for _, f := range files {
@@ -228,7 +204,7 @@ func removeAllSafe(root string) error {
 			}
 		}
 	}
-	Debugf("removeAllSafe: completed in %v", time.Since(start))
+	Debugf("RemoveAllSafe: completed in %v", time.Since(start))
 
 	return firstErr
 }
@@ -292,22 +268,5 @@ func removeSymlinkSafe(path string) {
 	elapsed := time.Since(start)
 	if elapsed > 100*time.Millisecond {
 		Debugf("removeSymlinkSafe: os.Remove took %v for %s", elapsed, name)
-	}
-}
-
-// CleanupPendingDeletions removes leftover tombstone directories in dir
-// from previous async deletions that may not have completed.
-func CleanupPendingDeletions(dir string) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return
-	}
-	for _, e := range entries {
-		if !strings.Contains(e.Name(), ".deleting-") {
-			continue
-		}
-		tombstone := filepath.Join(dir, e.Name())
-		Debugf("CleanupPendingDeletions: removing leftover %s", e.Name())
-		go removeAllSafe(tombstone)
 	}
 }
