@@ -1,10 +1,15 @@
-# Hub NATS Event Publishing
+# Hub Event Publishing & Web Consolidation
 
 ## Overview
 
-The Scion Hub is the source of truth for all state changes — agent CRUD, status transitions, grove operations, and broker connectivity. The web frontend's real-time pipeline (M7/M8) consumes events from NATS via an SSE bridge, but nothing currently publishes to NATS. This document specifies the Hub-side NATS event publisher.
+The Scion Hub is the source of truth for all state changes — agent CRUD, status transitions, grove operations, and broker connectivity. The web frontend's real-time pipeline (M7/M8) consumes events from NATS via an SSE bridge, but nothing currently publishes to NATS.
 
-The feature is opt-in: when NATS is not configured, the Hub operates exactly as it does today. When a NATS URL is provided, the Hub connects and publishes state-change events after successful database writes.
+This document covers two related concerns:
+
+1. **Event publishing** — The `EventPublisher` interface and its implementations for delivering state-change notifications to the web frontend.
+2. **Consolidated architecture** — An alternative to the current three-process deployment (Hub + Koa BFF + NATS) that rolls web-serving functionality into the Go binary, eliminating NATS as a runtime dependency for single-node deployments.
+
+The event publishing feature is opt-in: when NATS is not configured, the Hub operates exactly as it does today. When a NATS URL is provided, the Hub connects and publishes state-change events after successful database writes. Under the consolidated architecture, the default implementation uses in-process Go channels instead of NATS.
 
 For the SSE/NATS bridge architecture and client-side subscription model, see `web-frontend-design.md` §12.
 
@@ -519,6 +524,365 @@ scion agent start --name test-agent
 
 - `github.com/nats-io/nats.go` — Go NATS client (already a transitive dependency if used elsewhere, otherwise add to `go.mod`).
 - `github.com/nats-io/nats-server/v2` — Embedded NATS server for tests only.
+
+---
+
+## Alternative: Consolidated Go Binary
+
+### Motivation
+
+The current architecture requires three runtime processes for real-time web updates:
+
+```
+Browser → Koa BFF (Node.js) → Hub API (Go) → NATS Server → Koa BFF → Browser
+           session/SSR         state/API      pub/sub        SSE bridge
+```
+
+The Koa BFF exists to bridge browser concerns (cookies, sessions, SSR) to the Hub API (JWT tokens, REST). NATS exists solely to connect the Hub's state changes to the BFF's SSE endpoint. This is a significant amount of infrastructure for what is fundamentally "notify the browser when something changes."
+
+Rolling the BFF's functionality into the Go binary eliminates two runtime dependencies (Node.js, NATS) and three network hops (API proxy, NATS pub/sub, PTY proxy) for single-node deployments.
+
+### What the Koa BFF Does Today
+
+| Function | Lines | Go Equivalent |
+|----------|-------|---------------|
+| **API proxy** — forwards `/api/*` to Hub with auth headers | ~200 | **Eliminated.** Go server IS the API. |
+| **Session management** — wraps Hub JWTs in signed httpOnly cookies | ~200 | `gorilla/sessions` + `securecookie` |
+| **OAuth browser flow** — redirects, CSRF state, callback, domain check | ~480 | Same logic in Go handlers (~300 lines) |
+| **SSE/NATS bridge** — subscribes to NATS, streams to EventSource | ~220 | **Eliminated for single-node.** In-process channel. |
+| **WebSocket PTY proxy** — proxies browser WS to Hub PTY endpoint | ~220 | **Eliminated.** Hub already has PTY handlers. |
+| **SSR** — `@lit-labs/ssr` renders Lit components server-side | ~500 | See SSR options below |
+| **Static assets** — serves Vite build output from `/assets/` | ~10 | `http.FileServer` or `//go:embed` |
+| **Security headers** — CSP, HSTS, X-Frame-Options | ~70 | Middleware (~30 lines) |
+| **Health checks** — `/healthz`, `/readyz` | ~80 | Already exists in Hub |
+| **Dev auth** — reads dev token, creates dev user session | ~200 | Already exists in Hub |
+| **Request logging** — structured JSON, request IDs | ~210 | Already exists in Hub (`slog`) |
+
+**Total Koa server:** ~2,400 lines across 15 files.
+**Eliminated by consolidation:** ~650 lines (API proxy, SSE bridge, PTY proxy).
+**Already exists in Hub:** ~560 lines (health, dev auth, logging).
+**Needs porting:** ~700 lines (session, OAuth browser flow, security headers).
+**SSR:** ~500 lines — depends on approach chosen (see below).
+
+### Consolidated Architecture
+
+```
+scion server start --enable-hub --enable-runtime-broker --enable-web
+```
+
+One binary. One process. Three capabilities toggled by flags.
+
+```
+Browser (cookie auth)
+  ↕
+Go Server
+  ├── /assets/*              → static file serving (embedded or from disk)
+  ├── /auth/*                → OAuth browser flow (sessions, cookies)
+  ├── /events?sub=...        → SSE (in-process event bus — no NATS)
+  ├── /api/v1/*              → Hub API (direct handler, no proxy)
+  ├── /api/agents/*/pty      → WebSocket PTY (direct, no proxy)
+  ├── /healthz, /readyz      → health checks
+  └── /*                     → SPA shell (Go template or static HTML)
+```
+
+**Network hops eliminated:** 3 (API proxy, SSE/NATS bridge, PTY proxy).
+**External runtime dependencies eliminated:** 2 (Node.js, NATS server).
+**Separate processes eliminated:** 1 (Koa web server).
+
+### In-Process Event Bus (`ChannelEventPublisher`)
+
+For single-node deployments, the `EventPublisher` interface gets a second implementation that uses Go channels instead of NATS. The SSE endpoint subscribes to the same event bus in-process — no serialization, no network, no external dependencies.
+
+```go
+// ChannelEventPublisher fans out events to in-process SSE subscribers.
+// Implements EventPublisher. Zero external dependencies.
+type ChannelEventPublisher struct {
+    mu          sync.RWMutex
+    subscribers map[string][]chan Event  // subject pattern → subscriber channels
+}
+
+// Event is the in-process representation of a published event.
+type Event struct {
+    Subject string
+    Data    []byte  // JSON-encoded payload
+}
+
+// Subscribe returns a channel that receives events matching the given
+// subject pattern. Supports NATS-style wildcards (* and >).
+// The caller must call Unsubscribe when done.
+func (p *ChannelEventPublisher) Subscribe(pattern string) (<-chan Event, func()) {
+    ch := make(chan Event, 64)
+    p.mu.Lock()
+    p.subscribers[pattern] = append(p.subscribers[pattern], ch)
+    p.mu.Unlock()
+
+    unsubscribe := func() {
+        p.mu.Lock()
+        defer p.mu.Unlock()
+        subs := p.subscribers[pattern]
+        for i, s := range subs {
+            if s == ch {
+                p.subscribers[pattern] = append(subs[:i], subs[i+1:]...)
+                close(ch)
+                break
+            }
+        }
+    }
+    return ch, unsubscribe
+}
+```
+
+The SSE HTTP handler creates a subscription, reads from the channel, and writes SSE frames:
+
+```go
+func (s *Server) handleSSE(w http.ResponseWriter, r *http.Request) {
+    flusher, ok := w.(http.Flusher)
+    if !ok {
+        http.Error(w, "streaming not supported", http.StatusInternalServerError)
+        return
+    }
+
+    subjects := r.URL.Query()["sub"]
+    // ... validate subjects, check auth ...
+
+    w.Header().Set("Content-Type", "text/event-stream")
+    w.Header().Set("Cache-Control", "no-cache")
+    w.Header().Set("Connection", "keep-alive")
+    w.Header().Set("X-Accel-Buffering", "no")
+    flusher.Flush()
+
+    // Subscribe to requested subjects
+    ch, unsubscribe := s.events.(*ChannelEventPublisher).Subscribe(subjects...)
+    defer unsubscribe()
+
+    eventID := 0
+    for {
+        select {
+        case event := <-ch:
+            eventID++
+            fmt.Fprintf(w, "id: %d\nevent: update\ndata: %s\n\n",
+                eventID, buildSSEPayload(event))
+            flusher.Flush()
+        case <-r.Context().Done():
+            return
+        case <-time.After(30 * time.Second):
+            fmt.Fprintf(w, ":heartbeat %d\n\n", time.Now().UnixMilli())
+            flusher.Flush()
+        }
+    }
+}
+```
+
+### Publisher Selection
+
+The publisher implementation is chosen at startup based on configuration:
+
+| Configuration | Publisher | SSE Delivery |
+|---------------|----------|-------------|
+| No NATS URL, `--enable-web` | `ChannelEventPublisher` | In-process (default) |
+| `--nats-url` provided | `NATSEventPublisher` | Via NATS (multi-node or external BFF) |
+| Neither | `nil` (no-op) | No real-time updates |
+
+```go
+// In cmd/server.go initialization
+if natsURL != "" {
+    // Multi-node: use NATS for cross-process fan-out
+    publisher, _ := hub.NewNATSEventPublisher(natsURL, natsToken)
+    hubSrv.SetEventPublisher(publisher)
+} else if enableWeb {
+    // Single-node: use in-process channels (no NATS needed)
+    publisher := hub.NewChannelEventPublisher()
+    hubSrv.SetEventPublisher(publisher)
+}
+```
+
+The `EventPublisher` interface from the main design is unchanged. Handlers call `s.events.PublishAgentStatus(...)` without knowing which implementation is active.
+
+### SSR Decision
+
+Server-side rendering is the only Koa function that doesn't port straightforwardly. The current renderer uses `@lit-labs/ssr`, which requires a Node.js runtime. Options:
+
+**Option A: SPA shell — no SSR (recommended).**
+
+The Go server returns a minimal HTML page with `<script>` tags. Lit components render entirely client-side. The `__SCION_DATA__` hydration pattern still works — embed initial JSON in the HTML, the client reads it on load.
+
+```go
+// Go html/template for the SPA shell
+const spaShell = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Scion</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/...shoelace...">
+  <link rel="stylesheet" href="/assets/main.css">
+</head>
+<body>
+  <scion-app></scion-app>
+  <script id="__SCION_DATA__" type="application/json">{{.InitialData}}</script>
+  <script type="module" src="/assets/main.js"></script>
+</body>
+</html>`
+```
+
+- Pro: Zero Node.js runtime dependency. Simplest path.
+- Con: Brief flash of unstyled content on first load (mitigated with inline critical CSS).
+- Note: The app requires authentication, so search engines can't see content anyway. SSR provides no SEO benefit for this use case.
+
+**Option B: Go `html/template` for the layout shell.**
+
+Render the full page layout (sidebar, header, breadcrumbs) as static HTML via Go templates. Lit components hydrate only the dynamic content areas. This prevents the FOUC that Option A has.
+
+- Pro: No flash of content. No Node.js.
+- Con: Layout logic is duplicated between Go templates and Lit components. Changes to navigation require updating both.
+
+**Option C: Keep a thin Node sidecar for SSR.**
+
+A small Node process runs `@lit-labs/ssr` and is called by the Go server via HTTP or stdio for rendering. Only used for initial page loads; subsequent navigations are client-side.
+
+- Pro: Full SSR fidelity.
+- Con: Reintroduces Node.js as a runtime dependency. Adds process management complexity. Partially defeats the consolidation goal.
+
+**Recommendation:** Option A. For an authenticated internal tool, SSR provides no meaningful benefit. The FOUC can be addressed with inline critical CSS (which the current Koa template already includes — that CSS moves to the Go template unchanged).
+
+### Client Assets: Build-Time vs Runtime
+
+The client-side code (Lit components, xterm.js, CSS) still needs Node.js tooling to **build**. This is a build-time dependency, not a runtime one:
+
+```bash
+# Build step (CI or developer machine)
+cd web && npm run build    # → dist/client/assets/main.js + chunks
+
+# The Go binary serves the built assets
+scion server start --enable-web --web-assets-dir ./web/dist/client
+```
+
+Alternatively, assets can be embedded in the binary via `//go:embed`:
+
+```go
+//go:embed web/dist/client
+var clientAssets embed.FS
+```
+
+This makes the scion binary fully self-contained — a single file that includes the API server, runtime broker, and web UI with all client assets.
+
+### Web-Specific Configuration
+
+The `--enable-web` flag adds web-serving configuration to the Hub:
+
+```go
+type ServerConfig struct {
+    // ... existing fields ...
+
+    // Web frontend settings (when --enable-web is set)
+    WebEnabled    bool
+    WebAssetsDir  string   // Path to client assets (default: embedded)
+    SessionSecret string   // HMAC secret for session cookies
+    BaseURL       string   // Public URL for OAuth redirects
+}
+```
+
+```
+scion server start --enable-hub --enable-runtime-broker --enable-web \
+  --session-secret "$(openssl rand -hex 32)" \
+  --base-url https://scion.example.com
+```
+
+Environment variables: `SCION_SERVER_WEB_ENABLED`, `SCION_SERVER_SESSION_SECRET`, `SCION_SERVER_BASE_URL`.
+
+### Session Management in Go
+
+The Koa BFF uses `koa-session` to store Hub JWTs in signed httpOnly cookies. The Go equivalent uses `gorilla/sessions`:
+
+```go
+import "github.com/gorilla/sessions"
+
+var sessionStore = sessions.NewCookieStore([]byte(sessionSecret))
+
+func init() {
+    sessionStore.Options = &sessions.Options{
+        Path:     "/",
+        MaxAge:   86400, // 24 hours
+        HttpOnly: true,
+        Secure:   true,  // HTTPS only in production
+        SameSite: http.SameSiteLaxMode,
+    }
+}
+
+// In OAuth callback handler:
+func (s *Server) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
+    session, _ := sessionStore.Get(r, "scion_sess")
+    // Exchange code for tokens via internal Hub call (no HTTP — direct function call)
+    tokens, user, err := s.exchangeOAuthCode(r.Context(), code, provider)
+    session.Values["user"] = user
+    session.Values["accessToken"] = tokens.AccessToken
+    session.Values["refreshToken"] = tokens.RefreshToken
+    session.Save(r, w)
+    http.Redirect(w, r, returnTo, http.StatusFound)
+}
+```
+
+Key difference from the current architecture: the OAuth callback calls the Hub's token exchange logic **directly as a function call**, not via an HTTP proxy. No network hop, no serialization overhead.
+
+### Auth Middleware Layering
+
+The consolidated server needs two auth paths on the same mux:
+
+| Path prefix | Auth method | Consumer |
+|-------------|------------|----------|
+| `/api/v1/*` | Bearer JWT / API key / dev token | CLI, brokers, external API clients |
+| `/auth/*`, `/*` (pages), `/events` | Session cookie | Browser |
+| `/healthz`, `/readyz` | None | Load balancers |
+
+The existing `UnifiedAuthMiddleware` handles API auth. A new `SessionAuthMiddleware` handles browser auth. Route registration determines which applies:
+
+```go
+// API routes — existing JWT/API key auth
+apiMux := http.NewServeMux()
+apiMux.Handle("/api/v1/", UnifiedAuthMiddleware(s.authConfig)(s.apiHandler()))
+
+// Web routes — session cookie auth
+webMux := http.NewServeMux()
+webMux.Handle("/auth/", s.oauthRoutes())
+webMux.Handle("/events", SessionAuthMiddleware(sessionStore)(s.sseHandler()))
+webMux.Handle("/assets/", http.FileServer(http.FS(clientAssets)))
+webMux.Handle("/", SessionAuthMiddleware(sessionStore)(s.spaHandler()))
+
+// Combined
+mainMux := http.NewServeMux()
+mainMux.Handle("/api/", apiMux)
+mainMux.Handle("/", webMux)
+```
+
+### Impact on Open Questions
+
+Under the consolidated architecture, several open questions simplify or become irrelevant:
+
+| Open Question | Impact |
+|---------------|--------|
+| **1. Dashboard summaries** | Unchanged — still needs a periodic publisher or reactive approach. |
+| **2. Harness event relay** | Simplified for co-located broker. The broker's status monitor can publish directly to the `ChannelEventPublisher` in-process. No NATS needed. |
+| **3. NATS deployment topology** | **Irrelevant for single-node.** NATS is only needed for multi-node deployments where the web frontend or broker runs on a different machine. |
+| **4. Missing `grove.created`** | Unchanged — should still be added. |
+| **5. Config naming** | **Irrelevant.** No separate BFF process means no config naming conflict. `SCION_SERVER_NATS_URL` is the only env var, used only when multi-node NATS is needed. |
+
+### Migration Path
+
+The consolidation doesn't need to happen all at once. The `EventPublisher` interface is the stable contract that enables incremental migration:
+
+1. **Phase 1 (this design):** Implement `EventPublisher` interface + `NATSEventPublisher`. The existing Koa BFF continues to work. Hub publishes to NATS, BFF subscribes.
+
+2. **Phase 2:** Implement `ChannelEventPublisher` + Go SSE endpoint. Add `--enable-web` flag. The Go server can serve the SPA shell and SSE alongside the API. The Koa BFF is still available but optional.
+
+3. **Phase 3:** Port OAuth browser flow and session management to Go. Add cookie-based auth middleware. At this point the Koa BFF is fully redundant for single-node deployments.
+
+4. **Phase 4:** Remove Koa BFF from the default deployment. Keep it as an option for custom frontends or multi-node setups where the web server runs separately.
+
+### What This Does NOT Change
+
+- **Client-side code** — Lit components, xterm.js, Vite build, `StateManager`, `SSEClient` — all remain TypeScript. The browser code is unchanged.
+- **`EventPublisher` interface** — Same interface, same handler integration points, same message formats. Only the implementation behind the interface changes.
+- **Multi-node support** — `NATSEventPublisher` remains available for deployments where the web frontend runs on a different machine from the Hub.
+- **Build tooling** — Node.js is still required at build time to compile client assets. Only the runtime dependency is removed.
 
 ---
 
