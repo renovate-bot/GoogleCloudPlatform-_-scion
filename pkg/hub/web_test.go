@@ -403,6 +403,31 @@ func TestSessionMiddleware_ProtectedAPI(t *testing.T) {
 	assert.Equal(t, "authentication required", result["error"])
 }
 
+func TestAPINotFound_ReturnsJSON(t *testing.T) {
+	// Authenticated requests to unknown /api/ routes should get JSON 404,
+	// not the SPA HTML shell (which would cause JSON parse errors in the frontend).
+	ws := newDevAuthWebServer(t)
+
+	paths := []string{"/api/groves", "/api/agents", "/api/v1/unknown", "/api/foo/bar"}
+	for _, path := range paths {
+		t.Run(path, func(t *testing.T) {
+			req := httptest.NewRequest("GET", path, nil)
+			rec := httptest.NewRecorder()
+
+			ws.Handler().ServeHTTP(rec, req)
+
+			resp := rec.Result()
+			assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+			assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
+
+			body, _ := io.ReadAll(resp.Body)
+			var result map[string]string
+			require.NoError(t, json.Unmarshal(body, &result), "response should be valid JSON for %s", path)
+			assert.Equal(t, "not found", result["error"])
+		})
+	}
+}
+
 func TestDevAuth_AutoLogin(t *testing.T) {
 	ws := newDevAuthWebServer(t)
 

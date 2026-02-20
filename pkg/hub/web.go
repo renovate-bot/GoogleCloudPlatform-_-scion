@@ -373,6 +373,9 @@ func (ws *WebServer) registerRoutes() {
 	ws.mux.HandleFunc("/auth/debug", ws.handleAuthDebug)
 	// SSE event stream (protected by session auth middleware)
 	ws.mux.HandleFunc("/events", ws.handleSSE)
+	// API catch-all: return JSON 404 for unhandled /api/ routes so the SPA
+	// handler doesn't serve HTML that the client tries to parse as JSON.
+	ws.mux.HandleFunc("/api/", ws.handleAPINotFound)
 	// SPA catch-all (protected by session auth middleware)
 	ws.mux.HandleFunc("/", ws.spaHandler())
 }
@@ -436,6 +439,17 @@ func isHashedAsset(path string) bool {
 		}
 	}
 	return true
+}
+
+// handleAPINotFound returns a JSON 404 for any /api/ route not handled by a
+// specific handler. Without this, the SPA catch-all would serve HTML for API
+// requests, causing JSON parse errors in the frontend.
+func (ws *WebServer) handleAPINotFound(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusNotFound)
+	json.NewEncoder(w).Encode(map[string]string{
+		"error": "not found",
+	})
 }
 
 // spaHandler returns the SPA shell HTML for any route not matched by other handlers.
