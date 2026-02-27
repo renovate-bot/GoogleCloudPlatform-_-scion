@@ -101,7 +101,7 @@ func (c *HTTPRuntimeBrokerClient) CreateAgent(ctx context.Context, brokerID, bro
 
 // StartAgent starts an agent on a remote runtime broker.
 // Note: brokerID is unused in this unauthenticated client.
-func (c *HTTPRuntimeBrokerClient) StartAgent(ctx context.Context, brokerID, brokerEndpoint, agentID, task, grovePath, groveSlug string) (*RemoteAgentResponse, error) {
+func (c *HTTPRuntimeBrokerClient) StartAgent(ctx context.Context, brokerID, brokerEndpoint, agentID, task, grovePath, groveSlug string, resolvedEnv map[string]string) (*RemoteAgentResponse, error) {
 	_ = brokerID // Unused in unauthenticated client
 	endpoint := fmt.Sprintf("%s/api/v1/agents/%s/start", strings.TrimSuffix(brokerEndpoint, "/"), url.PathEscape(agentID))
 
@@ -109,7 +109,7 @@ func (c *HTTPRuntimeBrokerClient) StartAgent(ctx context.Context, brokerID, brok
 		slog.Debug("Dispatcher request", "method", "POST", "endpoint", endpoint)
 	}
 
-	payload := map[string]string{}
+	payload := map[string]interface{}{}
 	if task != "" {
 		payload["task"] = task
 	}
@@ -118,6 +118,9 @@ func (c *HTTPRuntimeBrokerClient) StartAgent(ctx context.Context, brokerID, brok
 	}
 	if groveSlug != "" {
 		payload["groveSlug"] = groveSlug
+	}
+	if len(resolvedEnv) > 0 {
+		payload["resolvedEnv"] = resolvedEnv
 	}
 
 	var body io.Reader
@@ -960,8 +963,80 @@ func (d *HTTPAgentDispatcher) DispatchAgentStart(ctx context.Context, agent *sto
 		}
 	}
 
+	// Resolve env vars from Hub storage (user/grove/broker scopes) so that
+	// API keys and other secrets are available when restarting an agent.
+	resolvedEnv := make(map[string]string)
+
+	// Start with agent's applied config env (template/config-level vars)
+	if agent.AppliedConfig != nil {
+		for k, v := range agent.AppliedConfig.Env {
+			resolvedEnv[k] = v
+		}
+	}
+
+	// Merge env vars from Hub storage; storage vars fill in keys not already
+	// set by explicit config env vars (same precedence as buildCreateRequest).
+	envFromStorage, err := d.resolveEnvFromStorage(ctx, agent)
+	if err != nil {
+		if d.debug {
+			slog.Warn("DispatchAgentStart: failed to resolve env from storage", "error", err)
+		}
+	} else if len(envFromStorage) > 0 {
+		for k, v := range envFromStorage {
+			if _, exists := resolvedEnv[k]; !exists {
+				resolvedEnv[k] = v
+			}
+		}
+	}
+
+	// Resolve type-aware secrets and inject environment-type secrets
+	resolvedSecrets, err := d.resolveSecrets(ctx, agent)
+	if err != nil {
+		if d.debug {
+			slog.Warn("DispatchAgentStart: failed to resolve secrets", "error", err)
+		}
+	} else {
+		for _, s := range resolvedSecrets {
+			if (s.Type == "environment" || s.Type == "") && s.Target != "" {
+				if _, exists := resolvedEnv[s.Target]; !exists {
+					resolvedEnv[s.Target] = s.Value
+				}
+			}
+		}
+	}
+
+	// Generate a fresh agent token for Hub authentication
+	if d.tokenGenerator != nil {
+		var additionalScopes []AgentTokenScope
+		if agent.AppliedConfig != nil {
+			for _, s := range agent.AppliedConfig.HubAccessScopes {
+				additionalScopes = append(additionalScopes, AgentTokenScope(s))
+			}
+		}
+		token, err := d.tokenGenerator.GenerateAgentToken(agent.ID, agent.GroveID, additionalScopes...)
+		if err != nil {
+			if d.debug {
+				slog.Warn("DispatchAgentStart: failed to generate agent token", "error", err)
+			}
+		} else if token != "" {
+			resolvedEnv["SCION_SERVER_AUTH_DEV_TOKEN"] = token
+		}
+	}
+
+	if d.debug {
+		configEnvCount := 0
+		if agent.AppliedConfig != nil {
+			configEnvCount = len(agent.AppliedConfig.Env)
+		}
+		slog.Debug("DispatchAgentStart: env resolution summary",
+			"configEnvCount", configEnvCount,
+			"storageEnvCount", len(envFromStorage),
+			"totalResolvedEnv", len(resolvedEnv),
+		)
+	}
+
 	// Use agent name as identifier (runtime broker uses name or ID)
-	resp, err := d.client.StartAgent(ctx, agent.RuntimeBrokerID, endpoint, agent.Name, task, grovePath, groveSlug)
+	resp, err := d.client.StartAgent(ctx, agent.RuntimeBrokerID, endpoint, agent.Name, task, grovePath, groveSlug, resolvedEnv)
 	if err != nil {
 		return err
 	}

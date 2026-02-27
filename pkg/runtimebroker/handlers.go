@@ -839,11 +839,12 @@ func (s *Server) handleAgentAction(w http.ResponseWriter, r *http.Request, id, a
 func (s *Server) startAgent(w http.ResponseWriter, r *http.Request, id string) {
 	ctx := r.Context()
 
-	// Read optional task, grovePath, and groveSlug from request body
+	// Read optional task, grovePath, groveSlug, and resolvedEnv from request body
 	var startReq struct {
-		Task      string `json:"task"`
-		GrovePath string `json:"grovePath"`
-		GroveSlug string `json:"groveSlug"`
+		Task        string            `json:"task"`
+		GrovePath   string            `json:"grovePath"`
+		GroveSlug   string            `json:"groveSlug"`
+		ResolvedEnv map[string]string `json:"resolvedEnv"`
 	}
 	if r.Body != nil && r.ContentLength != 0 {
 		if err := json.NewDecoder(r.Body).Decode(&startReq); err != nil {
@@ -851,7 +852,7 @@ func (s *Server) startAgent(w http.ResponseWriter, r *http.Request, id string) {
 		}
 	}
 
-	slog.Debug("startAgent called", "id", id, "task", startReq.Task, "grovePath", startReq.GrovePath, "groveSlug", startReq.GroveSlug)
+	slog.Debug("startAgent called", "id", id, "task", startReq.Task, "grovePath", startReq.GrovePath, "groveSlug", startReq.GroveSlug, "resolvedEnvCount", len(startReq.ResolvedEnv))
 
 	// For hub-native groves (GroveSlug set, no local provider path), resolve
 	// the conventional grove path (~/.scion/groves/<slug>/) so the agent is
@@ -875,6 +876,38 @@ func (s *Server) startAgent(w http.ResponseWriter, r *http.Request, id string) {
 	opts := api.StartOptions{
 		Name: id,
 		Task: startReq.Task,
+	}
+
+	// Apply resolved env vars from Hub (API keys, secrets, etc.)
+	if len(startReq.ResolvedEnv) > 0 {
+		opts.Env = make(map[string]string, len(startReq.ResolvedEnv))
+		for k, v := range startReq.ResolvedEnv {
+			opts.Env[k] = v
+		}
+		if s.config.Debug {
+			slog.Debug("startAgent: applied resolved env from hub", "count", len(startReq.ResolvedEnv))
+		}
+	}
+
+	// Apply broker-level env enrichment (hub endpoint, broker name, debug)
+	if opts.Env == nil {
+		opts.Env = make(map[string]string)
+	}
+	// Hub endpoint: use ContainerHubEndpoint if set, else fall back to config
+	if s.config.ContainerHubEndpoint != "" {
+		opts.Env["SCION_HUB_ENDPOINT"] = s.config.ContainerHubEndpoint
+		opts.Env["SCION_HUB_URL"] = s.config.ContainerHubEndpoint
+	} else if s.config.HubEndpoint != "" {
+		if _, ok := opts.Env["SCION_HUB_ENDPOINT"]; !ok {
+			opts.Env["SCION_HUB_ENDPOINT"] = s.config.HubEndpoint
+			opts.Env["SCION_HUB_URL"] = s.config.HubEndpoint
+		}
+	}
+	if s.config.BrokerName != "" {
+		opts.Env["SCION_BROKER_NAME"] = s.config.BrokerName
+	}
+	if s.config.Debug {
+		opts.Env["SCION_DEBUG"] = "1"
 	}
 
 	// Use grove path from request if provided

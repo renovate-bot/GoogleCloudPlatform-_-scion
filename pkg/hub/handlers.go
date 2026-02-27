@@ -1454,7 +1454,17 @@ func (s *Server) handleAgentLifecycle(w http.ResponseWriter, r *http.Request, id
 	case "restart":
 		newStatus = store.AgentStatusRunning
 		if dispatcher != nil && agent.RuntimeBrokerID != "" {
-			dispatchErr = dispatcher.DispatchAgentRestart(ctx, agent)
+			// Restart is implemented as stop + start so that env vars
+			// (API keys, secrets) are re-resolved from Hub storage.
+			dispatchErr = dispatcher.DispatchAgentStop(ctx, agent)
+			if dispatchErr == nil {
+				dispatchErr = dispatcher.DispatchAgentStart(ctx, agent, "")
+				// DispatchAgentStart applies the broker response in-place;
+				// use the broker-reported status if it was set.
+				if dispatchErr == nil && agent.Status != "" {
+					newStatus = agent.Status
+				}
+			}
 		}
 	}
 

@@ -566,8 +566,13 @@ export class ScionPageAgentDetail extends LitElement {
       }
 
       if (!response.ok) {
-        const errorData = (await response.json().catch(() => ({}))) as { message?: string };
-        throw new Error(errorData.message || `Failed to ${action} agent`);
+        const errorData = (await response.json().catch(() => ({}))) as {
+          message?: string;
+          error?: { message?: string };
+        };
+        throw new Error(
+          errorData.error?.message || errorData.message || `Failed to ${action} agent`,
+        );
       }
 
       if (action === 'delete') {

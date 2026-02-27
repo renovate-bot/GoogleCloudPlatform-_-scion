@@ -147,10 +147,10 @@ func (c *AuthenticatedBrokerClient) CreateAgent(ctx context.Context, brokerID, b
 }
 
 // StartAgent starts an agent on a remote runtime broker with HMAC authentication.
-func (c *AuthenticatedBrokerClient) StartAgent(ctx context.Context, brokerID, brokerEndpoint, agentID, task, grovePath, groveSlug string) (*RemoteAgentResponse, error) {
+func (c *AuthenticatedBrokerClient) StartAgent(ctx context.Context, brokerID, brokerEndpoint, agentID, task, grovePath, groveSlug string, resolvedEnv map[string]string) (*RemoteAgentResponse, error) {
 	endpoint := fmt.Sprintf("%s/api/v1/agents/%s/start", strings.TrimSuffix(brokerEndpoint, "/"), url.PathEscape(agentID))
 
-	payload := map[string]string{}
+	payload := map[string]interface{}{}
 	if task != "" {
 		payload["task"] = task
 	}
@@ -159,6 +159,9 @@ func (c *AuthenticatedBrokerClient) StartAgent(ctx context.Context, brokerID, br
 	}
 	if groveSlug != "" {
 		payload["groveSlug"] = groveSlug
+	}
+	if len(resolvedEnv) > 0 {
+		payload["resolvedEnv"] = resolvedEnv
 	}
 
 	var body []byte
