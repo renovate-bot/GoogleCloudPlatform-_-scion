@@ -311,6 +311,7 @@ func TestSeedAgnosticTemplate_ForceOverwrite(t *testing.T) {
 
 func TestInitProject_EmptyTemplatesDir(t *testing.T) {
 	tmpDir := t.TempDir()
+	mockRuntimeDetection(t, "docker")
 
 	// Override HOME for global templates
 	origHome := os.Getenv("HOME")
@@ -339,6 +340,7 @@ func TestInitProject_EmptyTemplatesDir(t *testing.T) {
 
 func TestInitProject_NoHarnessConfigs(t *testing.T) {
 	tmpDir := t.TempDir()
+	mockRuntimeDetection(t, "docker")
 
 	origHome := os.Getenv("HOME")
 	os.Setenv("HOME", tmpDir)
@@ -367,6 +369,7 @@ func TestInitProject_NoHarnessConfigs(t *testing.T) {
 
 func TestInitMachine_SeedsAll(t *testing.T) {
 	tmpDir := t.TempDir()
+	mockRuntimeDetection(t, "docker")
 
 	origHome := os.Getenv("HOME")
 	os.Setenv("HOME", tmpDir)
@@ -426,6 +429,7 @@ func TestInitMachine_SeedsAll(t *testing.T) {
 
 func TestInitMachine_DoesNotOverwriteExistingBrokerID(t *testing.T) {
 	tmpDir := t.TempDir()
+	mockRuntimeDetection(t, "docker")
 
 	origHome := os.Getenv("HOME")
 	os.Setenv("HOME", tmpDir)
@@ -460,6 +464,7 @@ func TestInitMachine_DoesNotOverwriteExistingBrokerID(t *testing.T) {
 
 func TestInitGlobal_IsAliasForInitMachine(t *testing.T) {
 	tmpDir := t.TempDir()
+	mockRuntimeDetection(t, "docker")
 
 	origHome := os.Getenv("HOME")
 	os.Setenv("HOME", tmpDir)
@@ -481,5 +486,106 @@ func TestInitGlobal_IsAliasForInitMachine(t *testing.T) {
 	defaultTplDir := filepath.Join(globalDir, "templates", "default")
 	if _, err := os.Stat(defaultTplDir); os.IsNotExist(err) {
 		t.Error("expected default template directory to exist")
+	}
+}
+
+func TestInitMachine_FailsWithNoRuntime(t *testing.T) {
+	tmpDir := t.TempDir()
+	mockRuntimeDetectionNone(t)
+
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", origHome)
+
+	err := InitMachine(GetMockHarnesses())
+	if err == nil {
+		t.Fatal("expected InitMachine to fail when no container runtime is available")
+	}
+	if !strings.Contains(err.Error(), "no supported container runtime found") {
+		t.Errorf("expected error about missing runtime, got: %v", err)
+	}
+}
+
+func TestInitProject_FailsWithNoRuntime(t *testing.T) {
+	tmpDir := t.TempDir()
+	mockRuntimeDetectionNone(t)
+
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", origHome)
+
+	projectDir := filepath.Join(tmpDir, "project", DotScion)
+	err := InitProject(projectDir, GetMockHarnesses())
+	if err == nil {
+		t.Fatal("expected InitProject to fail when no container runtime is available")
+	}
+	if !strings.Contains(err.Error(), "no supported container runtime found") {
+		t.Errorf("expected error about missing runtime, got: %v", err)
+	}
+}
+
+func TestInitMachine_UsesDetectedRuntime(t *testing.T) {
+	tmpDir := t.TempDir()
+	mockRuntimeDetection(t, "podman")
+
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", origHome)
+
+	if err := InitMachine(GetMockHarnesses()); err != nil {
+		t.Fatalf("InitMachine failed: %v", err)
+	}
+
+	// Read the seeded settings and verify runtime is "podman"
+	globalDir := filepath.Join(tmpDir, GlobalDir)
+	data, err := os.ReadFile(filepath.Join(globalDir, "settings.yaml"))
+	if err != nil {
+		t.Fatalf("failed to read settings.yaml: %v", err)
+	}
+
+	var settings Settings
+	if err := yaml.Unmarshal(data, &settings); err != nil {
+		t.Fatalf("failed to unmarshal settings: %v", err)
+	}
+
+	localProfile, ok := settings.Profiles["local"]
+	if !ok {
+		t.Fatal("local profile not found in seeded settings")
+	}
+	if localProfile.Runtime != "podman" {
+		t.Errorf("expected runtime 'podman' from detection, got %q", localProfile.Runtime)
+	}
+}
+
+func TestInitProject_UsesDetectedRuntime(t *testing.T) {
+	tmpDir := t.TempDir()
+	mockRuntimeDetection(t, "podman")
+
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", origHome)
+
+	projectDir := filepath.Join(tmpDir, "project", DotScion)
+	if err := InitProject(projectDir, GetMockHarnesses()); err != nil {
+		t.Fatalf("InitProject failed: %v", err)
+	}
+
+	// Read the seeded settings and verify runtime is "podman"
+	data, err := os.ReadFile(filepath.Join(projectDir, "settings.yaml"))
+	if err != nil {
+		t.Fatalf("failed to read settings.yaml: %v", err)
+	}
+
+	var settings Settings
+	if err := yaml.Unmarshal(data, &settings); err != nil {
+		t.Fatalf("failed to unmarshal settings: %v", err)
+	}
+
+	localProfile, ok := settings.Profiles["local"]
+	if !ok {
+		t.Fatal("local profile not found in seeded settings")
+	}
+	if localProfile.Runtime != "podman" {
+		t.Errorf("expected runtime 'podman' from detection, got %q", localProfile.Runtime)
 	}
 }

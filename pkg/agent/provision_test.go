@@ -140,6 +140,7 @@ profiles:
 }
 
 func TestProvisionGeminiAgentSettings(t *testing.T) {
+	mockRuntimeForTest(t)
 	tmpDir := t.TempDir()
 
 	// Move to tmpDir
@@ -196,6 +197,7 @@ func TestProvisionGeminiAgentSettings(t *testing.T) {
 }
 
 func TestProvisionWritesTaskToPromptMd(t *testing.T) {
+	mockRuntimeForTest(t)
 	tmpDir := t.TempDir()
 
 	oldWd, _ := os.Getwd()
@@ -268,6 +270,7 @@ func TestProvisionWritesTaskToPromptMd(t *testing.T) {
 }
 
 func TestProvisionAgentNonGitWorkspace(t *testing.T) {
+	mockRuntimeForTest(t)
 	tmpDir := t.TempDir()
 
 	// Move to tmpDir to avoid being inside the project's git repo

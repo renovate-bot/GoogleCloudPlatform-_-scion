@@ -24,6 +24,7 @@ import (
 )
 
 func TestProvisionOpencodeAgent(t *testing.T) {
+	mockRuntimeForTest(t)
 	tmpDir := t.TempDir()
 
 	// Move to tmpDir

@@ -15,7 +15,10 @@
 package agent
 
 import (
+	"testing"
+
 	"github.com/ptone/scion-agent/pkg/api"
+	"github.com/ptone/scion-agent/pkg/config"
 	"github.com/ptone/scion-agent/pkg/harness"
 )
 
@@ -26,4 +29,15 @@ func getTestHarnesses() []api.Harness {
 		&harness.OpenCode{},
 		&harness.Codex{},
 	}
+}
+
+// mockRuntimeForTest overrides runtime detection so InitMachine/InitProject
+// succeed without a real container runtime installed.
+func mockRuntimeForTest(t *testing.T) {
+	t.Helper()
+	restore := config.OverrideRuntimeDetection(
+		func(file string) (string, error) { return "/usr/bin/" + file, nil },
+		func(binary string, args []string) error { return nil },
+	)
+	t.Cleanup(restore)
 }

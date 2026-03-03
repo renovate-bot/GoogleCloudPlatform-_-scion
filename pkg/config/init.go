@@ -32,55 +32,49 @@ import (
 //go:embed all:embeds/*
 var EmbedsFS embed.FS
 
-func GetDefaultSettingsData() ([]byte, error) {
-	// Load embedded YAML defaults
+// getDefaultSettingsDataForRuntime generates default settings JSON with the
+// specified runtime for the local profile. Handles both versioned and legacy formats.
+func getDefaultSettingsDataForRuntime(targetRuntime string) ([]byte, error) {
 	data, err := EmbedsFS.ReadFile("embeds/default_settings.yaml")
 	if err != nil {
 		return nil, err
 	}
 
-	// Detect whether embedded defaults use versioned or legacy format
 	version, _ := DetectSettingsFormat(data)
 	if version != "" {
-		// Versioned format: unmarshal into VersionedSettings, adjust, convert to legacy
 		var vs VersionedSettings
 		if err := yaml.Unmarshal(data, &vs); err != nil {
 			return nil, err
 		}
-
-		// Apply OS-specific runtime adjustment for local profile
 		if local, ok := vs.Profiles["local"]; ok {
-			if runtime.GOOS == "darwin" {
-				local.Runtime = "container"
-			} else {
-				local.Runtime = "docker"
-			}
+			local.Runtime = targetRuntime
 			vs.Profiles["local"] = local
 		}
-
-		// Convert to legacy and return JSON for backward compatibility
 		legacy := convertVersionedToLegacy(&vs)
 		return json.MarshalIndent(legacy, "", "  ")
 	}
 
-	// Legacy format: existing behavior
 	var settings Settings
 	if err := yaml.Unmarshal(data, &settings); err != nil {
 		return nil, err
 	}
-
-	// Apply OS-specific runtime adjustment for local profile
 	if local, ok := settings.Profiles["local"]; ok {
-		if runtime.GOOS == "darwin" {
-			local.Runtime = "container"
-		} else {
-			local.Runtime = "docker"
-		}
+		local.Runtime = targetRuntime
 		settings.Profiles["local"] = local
 	}
-
-	// Return JSON for backward compatibility with callers expecting JSON
 	return json.MarshalIndent(settings, "", "  ")
+}
+
+// GetDefaultSettingsData returns the embedded default settings in JSON format.
+// This function adjusts the local profile runtime based on the OS. It is used as
+// a fallback default for settings loaders; during init, DetectLocalRuntime is used
+// instead for actual runtime probing.
+func GetDefaultSettingsData() ([]byte, error) {
+	targetRuntime := "docker"
+	if runtime.GOOS == "darwin" {
+		targetRuntime = "container"
+	}
+	return getDefaultSettingsDataForRuntime(targetRuntime)
 }
 
 // SeedCommonFiles seeds the common files for a harness template.
@@ -359,11 +353,17 @@ func InitProject(targetDir string, harnesses []api.Harness) error {
 	// Check if any settings file exists (YAML or JSON)
 	settingsPath := GetSettingsPath(projectDir)
 	if settingsPath == "" {
-		// No settings file exists, seed with default YAML settings
-		defaultSettings, err := GetDefaultSettingsDataYAML()
+		// Detect a functioning container runtime before seeding settings
+		detectedRuntime, err := DetectLocalRuntime()
+		if err != nil {
+			return err
+		}
+
+		// Seed default YAML settings with the detected runtime
+		defaultSettings, err := getDefaultSettingsYAMLForRuntime(detectedRuntime)
 		if err != nil {
 			// Fall back to JSON defaults
-			defaultSettings, err = GetDefaultSettingsData()
+			defaultSettings, err = getDefaultSettingsDataForRuntime(detectedRuntime)
 			if err != nil {
 				return fmt.Errorf("failed to read default settings: %w", err)
 			}
@@ -403,11 +403,17 @@ func InitMachine(harnesses []api.Harness) error {
 	// Create global settings file if it doesn't exist
 	settingsPath := GetSettingsPath(globalDir)
 	if settingsPath == "" {
-		// No settings file exists, seed with default YAML settings
-		defaultSettings, err := GetDefaultSettingsDataYAML()
+		// Detect a functioning container runtime before seeding settings
+		detectedRuntime, err := DetectLocalRuntime()
+		if err != nil {
+			return err
+		}
+
+		// Seed default YAML settings with the detected runtime
+		defaultSettings, err := getDefaultSettingsYAMLForRuntime(detectedRuntime)
 		if err != nil {
 			// Fall back to JSON defaults
-			defaultSettings, err = GetDefaultSettingsData()
+			defaultSettings, err = getDefaultSettingsDataForRuntime(detectedRuntime)
 			if err != nil {
 				return fmt.Errorf("failed to read default settings: %w", err)
 			}

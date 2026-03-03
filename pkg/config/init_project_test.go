@@ -28,6 +28,8 @@ func TestInitProject_CreatesEmptyTemplatesDir(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
+	mockRuntimeDetection(t, "docker")
+
 	// Run InitProject
 	err = InitProject(tempDir, GetMockHarnesses())
 	if err != nil {

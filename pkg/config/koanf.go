@@ -16,6 +16,7 @@ package config
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	goruntime "runtime"
@@ -184,25 +185,34 @@ func loadSettingsFile(k *koanf.Koanf, dir string) error {
 	return nil
 }
 
-// GetDefaultSettingsDataYAML returns the embedded default settings in YAML format.
-// This function adjusts the local profile runtime based on the OS.
-func GetDefaultSettingsDataYAML() ([]byte, error) {
+// getDefaultSettingsYAMLForRuntime generates the default settings YAML with the
+// specified runtime for the local profile. The embedded template defaults to
+// "container"; if a different runtime is specified, the template is adjusted.
+func getDefaultSettingsYAMLForRuntime(targetRuntime string) ([]byte, error) {
 	data, err := EmbedsFS.ReadFile("embeds/default_settings.yaml")
 	if err != nil {
 		return nil, err
 	}
 
-	// Apply OS-specific runtime adjustment for local profile.
-	// The embedded template defaults to "container" (macOS). On non-darwin,
-	// replace with "docker".
-	if goruntime.GOOS != "darwin" {
+	if targetRuntime != "container" {
 		data = bytes.Replace(data,
 			[]byte("runtime: container  # Auto-adjusted by OS"),
-			[]byte("runtime: docker  # Auto-adjusted by OS"),
+			[]byte(fmt.Sprintf("runtime: %s  # Auto-detected", targetRuntime)),
 			1)
 	}
 
 	return data, nil
+}
+
+// GetDefaultSettingsDataYAML returns the embedded default settings in YAML format.
+// This function adjusts the local profile runtime based on the OS. It is used as
+// a fallback default for settings loaders; during init, DetectLocalRuntime is used
+// instead for actual runtime probing.
+func GetDefaultSettingsDataYAML() ([]byte, error) {
+	if goruntime.GOOS != "darwin" {
+		return getDefaultSettingsYAMLForRuntime("docker")
+	}
+	return getDefaultSettingsYAMLForRuntime("container")
 }
 
 // GetSettingsPath returns the path to the settings file in a directory,

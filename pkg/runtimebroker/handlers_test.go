@@ -1887,6 +1887,12 @@ func TestStartAgentGroveSlugNotUsedWhenGrovePathSet(t *testing.T) {
 }
 
 func TestCreateAgentGroveSlugInitializesScionDir(t *testing.T) {
+	restore := config.OverrideRuntimeDetection(
+		func(file string) (string, error) { return "/usr/bin/" + file, nil },
+		func(binary string, args []string) error { return nil },
+	)
+	defer restore()
+
 	// When GroveSlug is set and the broker has no .scion subdirectory for
 	// the hub-native grove, the handler should create it so that
 	// ResolveGrovePath resolves to groves/<slug>/.scion (not groves/<slug>).

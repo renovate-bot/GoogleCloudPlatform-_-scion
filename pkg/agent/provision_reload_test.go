@@ -24,6 +24,7 @@ import (
 )
 
 func TestProvisionAgentReloadsConfig(t *testing.T) {
+	mockRuntimeForTest(t)
 	// This test verifies that ProvisionAgent reloads the config after harness.Provision
 	// which allows harness-injected changes (like GEMINI_API_KEY) to be returned.
 

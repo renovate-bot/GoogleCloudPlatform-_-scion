@@ -482,6 +482,7 @@ func TestComposition_InlineHarnessConfigAutoDetectsAgentsMd(t *testing.T) {
 }
 
 func TestComposition_FullInitProjectFlow(t *testing.T) {
+	mockRuntimeForTest(t)
 	// End-to-end test: InitProject + default template + harness-config resolution
 	tmpDir := t.TempDir()
 

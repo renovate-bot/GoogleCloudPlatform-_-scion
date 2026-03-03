@@ -28,6 +28,12 @@ import (
 func TestHarnessConfigList(t *testing.T) {
 	tmpDir := t.TempDir()
 
+	restore := config.OverrideRuntimeDetection(
+		func(file string) (string, error) { return "/usr/bin/" + file, nil },
+		func(binary string, args []string) error { return nil },
+	)
+	defer restore()
+
 	origHome := os.Getenv("HOME")
 	defer os.Setenv("HOME", origHome)
 	os.Setenv("HOME", tmpDir)
@@ -58,6 +64,12 @@ func TestHarnessConfigList(t *testing.T) {
 
 func TestHarnessConfigReset(t *testing.T) {
 	tmpDir := t.TempDir()
+
+	restore := config.OverrideRuntimeDetection(
+		func(file string) (string, error) { return "/usr/bin/" + file, nil },
+		func(binary string, args []string) error { return nil },
+	)
+	defer restore()
 
 	origHome := os.Getenv("HOME")
 	defer os.Setenv("HOME", origHome)
