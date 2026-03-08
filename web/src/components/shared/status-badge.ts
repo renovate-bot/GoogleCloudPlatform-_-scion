@@ -66,6 +66,7 @@ interface StatusConfig {
   icon?: string;
   emoji?: string;
   pulse?: boolean;
+  label?: string;
 }
 
 /**
@@ -104,6 +105,7 @@ function resolveStatusConfig(status: StatusType): StatusConfig {
       icon: stateDisplay.icon,
       emoji: stateDisplay.emoji,
       pulse: stateDisplay.pulse,
+      label: stateDisplay.label,
     };
   }
   // Fall back to non-agent statuses
@@ -298,7 +300,7 @@ export class ScionStatusBadge extends LitElement {
 
   override render() {
     const config = resolveStatusConfig(this.status);
-    const displayLabel = this.label || this.status;
+    const displayLabel = this.label || config.label || this.status.replace(/_/g, ' ');
     const shouldPulse = this.showPulse && config.pulse;
 
     return html`
