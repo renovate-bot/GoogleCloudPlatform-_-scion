@@ -1006,7 +1006,7 @@ export class ScionPageGroveDetail extends LitElement {
             ?disabled=${this.stopAllLoading}
             @click=${() => this.handleStopAll()}
           >
-            <sl-icon slot="prefix" name="sign-stop"></sl-icon>
+            <sl-icon slot="prefix" name="stop-circle"></sl-icon>
             Stop All
           </sl-button>
         ` : nothing}
