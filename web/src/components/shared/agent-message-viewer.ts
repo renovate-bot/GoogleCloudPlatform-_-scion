@@ -220,17 +220,19 @@ export class ScionAgentMessageViewer extends LitElement {
       flex-wrap: wrap;
     }
     .msg-actor {
-      font-size: 0.8125rem;
+      font-size: 0.875rem;
       font-weight: 600;
       color: var(--scion-text, #0f172a);
     }
     .msg-arrow {
-      font-size: 0.75rem;
-      color: var(--scion-text-muted, #64748b);
+      font-size: 0.8125rem;
+      font-weight: 600;
+      color: var(--scion-text, #0f172a);
     }
     .msg-target {
-      font-size: 0.8125rem;
-      color: var(--scion-text-secondary, #475569);
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--scion-text, #0f172a);
     }
     .msg-time {
       font-size: 0.6875rem;
@@ -372,10 +374,12 @@ export class ScionAgentMessageViewer extends LitElement {
     const isSentByAgent = senderLower.includes(agentSlug.toLowerCase()) || senderLower === `agent:${agentSlug.toLowerCase()}`;
     const direction: 'sent' | 'received' = isSentByAgent ? 'sent' : 'received';
 
-    // Extract message body from the payload
-    const body = (payload['msg'] as string)
-      || (payload['message'] as string)
-      || entry.message
+    // Extract message body from the payload.
+    // payload['message'] and entry.message are the Cloud Logging message
+    // (e.g. "message dispatched"), NOT the scion message content.
+    // The actual message body is in payload['body'] or payload['content'].
+    const body = (payload['body'] as string)
+      || (payload['content'] as string)
       || '';
 
     return {
@@ -647,6 +651,12 @@ export class ScionAgentMessageViewer extends LitElement {
       const arrowIcon = msg.direction === 'sent' ? 'arrow-right' : 'arrow-left';
       const dirIcon = msg.direction === 'sent' ? 'box-arrow-up-right' : 'box-arrow-in-down-left';
 
+      // Always show the current agent first with direction arrow
+      const agentSlug = this.agentName || this.agentId;
+      const otherParty = msg.direction === 'sent'
+        ? (msg.recipient || 'unknown')
+        : (msg.sender || 'unknown');
+
       rows.push(html`
         <div class="message-row" @click=${() => this.toggleExpand(msg.insertId)}>
           <div class="msg-direction ${msg.direction}">
@@ -654,9 +664,9 @@ export class ScionAgentMessageViewer extends LitElement {
           </div>
           <div class="msg-content">
             <div class="msg-header">
-              <span class="msg-actor">${msg.sender || 'unknown'}</span>
-              <sl-icon name=${arrowIcon} class="msg-arrow" style="font-size:0.625rem"></sl-icon>
-              <span class="msg-target">${msg.recipient || 'unknown'}</span>
+              <span class="msg-actor">${agentSlug}</span>
+              <sl-icon name=${arrowIcon} class="msg-arrow" style="font-size:0.6875rem"></sl-icon>
+              <span class="msg-target">${otherParty}</span>
               <div class="msg-badges">
                 ${msg.msgType ? html`<span class="msg-badge badge-type">${msg.msgType}</span>` : nothing}
                 ${msg.urgent ? html`<span class="msg-badge badge-urgent">urgent</span>` : nothing}
@@ -698,7 +708,7 @@ export class ScionAgentMessageViewer extends LitElement {
       detail['payload'] = msg.raw.jsonPayload;
     }
     return html`
-      <div class="msg-detail">
+      <div class="msg-detail" @click=${(e: Event) => e.stopPropagation()}>
         <scion-json-browser .data=${detail} expand-first></scion-json-browser>
       </div>
     `;
