@@ -620,6 +620,82 @@ func TestTelemetryHandler_TokenMetricsOnSessionEnd(t *testing.T) {
 	}
 }
 
+func TestTelemetryHandler_UnpairedToolEnd(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	defer mp.Shutdown(context.Background())
+
+	h := NewTelemetryHandler(nil, nil, nil, mp)
+
+	// Send tool-end WITHOUT a preceding tool-start (simulates hook-per-process mode)
+	if err := h.Handle(&hooks.Event{
+		Name: hooks.EventToolEnd,
+		Data: hooks.EventData{ToolName: "Bash", ToolOutput: "ok", Success: true},
+	}); err != nil {
+		t.Fatalf("Handle tool-end error: %v", err)
+	}
+
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &rm); err != nil {
+		t.Fatalf("Collect error: %v", err)
+	}
+
+	foundToolCalls := false
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			if m.Name == "agent.tool.calls" {
+				foundToolCalls = true
+			}
+		}
+	}
+
+	if !foundToolCalls {
+		t.Error("expected agent.tool.calls metric from unpaired tool-end event")
+	}
+}
+
+func TestTelemetryHandler_UnpairedModelEnd(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	defer mp.Shutdown(context.Background())
+
+	h := NewTelemetryHandler(nil, nil, nil, mp)
+
+	// Send model-end WITHOUT a preceding model-start (hook-per-process mode)
+	if err := h.Handle(&hooks.Event{
+		Name: hooks.EventModelEnd,
+		Data: hooks.EventData{
+			Success:      true,
+			InputTokens:  1000,
+			OutputTokens: 300,
+		},
+	}); err != nil {
+		t.Fatalf("Handle model-end error: %v", err)
+	}
+
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &rm); err != nil {
+		t.Fatalf("Collect error: %v", err)
+	}
+
+	found := map[string]bool{}
+	for _, sm := range rm.ScopeMetrics {
+		for _, m := range sm.Metrics {
+			found[m.Name] = true
+		}
+	}
+
+	if !found["gen_ai.api.calls"] {
+		t.Error("expected gen_ai.api.calls metric from unpaired model-end")
+	}
+	if !found["gen_ai.tokens.input"] {
+		t.Error("expected gen_ai.tokens.input metric from unpaired model-end")
+	}
+	if !found["gen_ai.tokens.output"] {
+		t.Error("expected gen_ai.tokens.output metric from unpaired model-end")
+	}
+}
+
 func TestTelemetryHandler_NoTokenMetricsWhenZero(t *testing.T) {
 	reader := sdkmetric.NewManualReader()
 	mp := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))

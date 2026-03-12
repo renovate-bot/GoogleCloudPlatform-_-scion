@@ -235,8 +235,11 @@ func (h *TelemetryHandler) endSpan(event *hooks.Event, spanName, startEventType 
 
 	val, ok := h.spanStore.LoadAndDelete(key)
 	if !ok {
-		// No matching start event - create a single span
+		// No matching start event — common in hook-per-process mode where
+		// each hook invocation is a separate process. Record metrics from
+		// the end event alone and emit a single span.
 		h.singleSpan(event, spanName)
+		h.recordUnpairedEndMetrics(event, startEventType)
 		return
 	}
 
@@ -510,6 +513,47 @@ func (h *TelemetryHandler) recordEndMetrics(event *hooks.Event, startEventType s
 				attrs = append(attrs, attribute.String("model", model))
 			}
 			h.apiDuration.Record(ctx, durationMs, metric.WithAttributes(attrs...))
+		}
+
+		// Record token usage from model-end events
+		h.recordTokenMetrics(ctx, event, baseAttrs)
+	}
+}
+
+// recordUnpairedEndMetrics records counter metrics from an end event that had no
+// matching start event in the spanStore. This is the normal case in hook-per-process
+// mode where each harness event invokes a separate sciontool process. Duration
+// metrics are skipped since the start time is unknown.
+func (h *TelemetryHandler) recordUnpairedEndMetrics(event *hooks.Event, startEventType string) {
+	ctx := context.Background()
+	baseAttrs := h.metricAttrs()
+
+	switch startEventType {
+	case hooks.EventToolStart:
+		if h.toolCalls != nil {
+			status := "success"
+			if event.Data.Error != "" {
+				status = "error"
+			}
+			attrs := append(baseAttrs,
+				attribute.String("tool_name", event.Data.ToolName),
+				attribute.String("status", status),
+			)
+			h.toolCalls.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+
+	case hooks.EventModelStart:
+		if h.apiCalls != nil {
+			status := "success"
+			if event.Data.Error != "" {
+				status = "error"
+			}
+			attrs := baseAttrs
+			if model := os.Getenv("SCION_MODEL"); model != "" {
+				attrs = append(attrs, attribute.String("model", model))
+			}
+			attrs = append(attrs, attribute.String("status", status))
+			h.apiCalls.Add(ctx, 1, metric.WithAttributes(attrs...))
 		}
 
 		// Record token usage from model-end events
