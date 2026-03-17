@@ -2225,7 +2225,6 @@ func (s *Server) createGroveGroup(ctx context.Context, grove *store.Grove) {
 		Slug:      agentsSlug,
 		GroupType: store.GroupTypeGroveAgents,
 		GroveID:   grove.ID,
-		OwnerID:   grove.OwnerID,
 		CreatedBy: grove.CreatedBy,
 	}
 	if err := s.store.CreateGroup(ctx, groveGroup); err != nil {
@@ -2262,7 +2261,6 @@ func (s *Server) createGroveMembersGroupAndPolicy(ctx context.Context, grove *st
 		Slug:      membersSlug,
 		GroupType: store.GroupTypeExplicit,
 		GroveID:   grove.ID,
-		OwnerID:   grove.OwnerID,
 		CreatedBy: grove.CreatedBy,
 	}
 	if err := s.store.CreateGroup(ctx, membersGroup); err != nil {
