@@ -370,6 +370,10 @@ export class ScionPageGroveDetail extends LitElement {
       text-decoration: underline;
     }
 
+    .agent-table-container .status-col {
+      min-width: 11rem;
+    }
+
     .agent-table-container .task-cell {
       max-width: 250px;
       overflow: hidden;
