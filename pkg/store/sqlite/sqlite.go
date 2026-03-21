@@ -1396,7 +1396,7 @@ func (s *SQLiteStore) MarkStaleAgentsOffline(ctx context.Context, threshold time
 		WHERE last_seen < ?
 		  AND last_seen IS NOT NULL
 		  AND phase = 'running'
-		  AND activity NOT IN ('completed', 'limits_exceeded', 'offline')
+		  AND activity NOT IN ('completed', 'limits_exceeded', 'blocked', 'offline')
 	`, now, threshold)
 	if err != nil {
 		return nil, err
@@ -1507,7 +1507,7 @@ func (s *SQLiteStore) MarkStalledAgents(ctx context.Context, activityThreshold, 
 		  AND last_seen >= ?
 		  AND last_seen IS NOT NULL
 		  AND phase = 'running'
-		  AND activity NOT IN ('completed', 'limits_exceeded', 'stalled', 'offline')
+		  AND activity NOT IN ('completed', 'limits_exceeded', 'blocked', 'stalled', 'offline')
 	`, now, activityThreshold, heartbeatRecency)
 	if err != nil {
 		return nil, err

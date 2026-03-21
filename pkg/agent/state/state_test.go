@@ -75,11 +75,12 @@ func TestActivityIsValid(t *testing.T) {
 		activity Activity
 		want     bool
 	}{
-		// All 8 valid activities.
+		// All 9 valid activities.
 		{ActivityIdle, true},
 		{ActivityThinking, true},
 		{ActivityExecuting, true},
 		{ActivityWaitingForInput, true},
+		{ActivityBlocked, true},
 		{ActivityCompleted, true},
 		{ActivityLimitsExceeded, true},
 		{ActivityStalled, true},
@@ -133,6 +134,7 @@ func TestActivityIsSticky(t *testing.T) {
 		want     bool
 	}{
 		{ActivityWaitingForInput, true},
+		{ActivityBlocked, true},
 		{ActivityCompleted, true},
 		{ActivityLimitsExceeded, true},
 		{ActivityIdle, false},
@@ -167,6 +169,7 @@ func TestActivityIsPlatformSet(t *testing.T) {
 		{ActivityThinking, false},
 		{ActivityExecuting, false},
 		{ActivityWaitingForInput, false},
+		{ActivityBlocked, false},
 		{ActivityCompleted, false},
 		{ActivityLimitsExceeded, false},
 		{"", false},
@@ -410,8 +413,8 @@ func TestPhasesEnumeration(t *testing.T) {
 
 func TestActivitiesEnumeration(t *testing.T) {
 	activities := Activities()
-	if len(activities) != 8 {
-		t.Fatalf("Activities() returned %d items, want 8", len(activities))
+	if len(activities) != 9 {
+		t.Fatalf("Activities() returned %d items, want 9", len(activities))
 	}
 
 	// Verify all returned activities are valid.

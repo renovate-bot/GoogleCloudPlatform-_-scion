@@ -28,12 +28,16 @@ This is used by agents to signal state changes to the scion orchestrator.
 
 Status Types:
   ask_user         Signal that the agent is waiting for user input
+  blocked          Signal that the agent is intentionally waiting (e.g. for a child agent or scheduled event)
   task_completed   Signal that the agent has completed its task
   limits_exceeded  Signal that the agent has exceeded its configured limits
 
 Examples:
   # Signal waiting for user input
   sciontool status ask_user "What should I do next?"
+
+  # Signal blocked waiting for a child agent
+  sciontool status blocked "Waiting for agent deploy-frontend to complete"
 
   # Signal task completion
   sciontool status task_completed "Implemented feature X"
@@ -51,6 +55,11 @@ Examples:
 				message = "Input requested"
 			}
 			runStatusAskUser(message)
+		case "blocked":
+			if message == "" {
+				message = "Agent is blocked"
+			}
+			runStatusBlocked(message)
 		case "task_completed":
 			if message == "" {
 				message = "Task completed"
@@ -63,7 +72,7 @@ Examples:
 			runStatusLimitsExceeded(message)
 		default:
 			fmt.Fprintf(cmd.ErrOrStderr(), "Error: unknown status type %q\n", statusType)
-			fmt.Fprintf(cmd.ErrOrStderr(), "Valid types: ask_user, task_completed, limits_exceeded\n")
+			fmt.Fprintf(cmd.ErrOrStderr(), "Valid types: ask_user, blocked, task_completed, limits_exceeded\n")
 			cmd.Root().SetArgs([]string{"status", "--help"})
 			cmd.Root().Execute()
 		}
@@ -105,6 +114,39 @@ func runStatusAskUser(message string) {
 	}
 
 	log.Info("Agent asked: %s", message)
+}
+
+// runStatusBlocked updates status to blocked (agent is intentionally waiting).
+func runStatusBlocked(message string) {
+	statusHandler := handlers.NewStatusHandler()
+	loggingHandler := handlers.NewLoggingHandler()
+
+	// Update activity to blocked (sticky)
+	if err := statusHandler.UpdateActivity(state.ActivityBlocked, ""); err != nil {
+		log.Error("Failed to update status: %v", err)
+	}
+
+	// Log the event
+	logMessage := fmt.Sprintf("Agent blocked: %s", message)
+	if err := loggingHandler.LogEvent(string(state.ActivityBlocked), logMessage); err != nil {
+		log.Error("Failed to log event: %v", err)
+	}
+
+	// Report to Hub if configured
+	if hubClient := hub.NewClient(); hubClient != nil && hubClient.IsConfigured() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		as := state.AgentState{Phase: state.PhaseRunning, Activity: state.ActivityBlocked}
+		if err := hubClient.UpdateStatus(ctx, hub.StatusUpdate{
+			Activity: state.ActivityBlocked,
+			Status:   as.DisplayStatus(),
+			Message:  message,
+		}); err != nil {
+			log.Error("Failed to report to Hub: %v", err)
+		}
+	}
+
+	log.Info("Agent blocked: %s", message)
 }
 
 // runStatusLimitsExceeded updates status to limits exceeded.

@@ -76,6 +76,7 @@ export const ACTIVITY_DISPLAY: Record<AgentActivity, StateDisplay> = {
     pulse: false,
     label: 'waiting for input',
   },
+  blocked: { emoji: '🚧', icon: 'clock-history', variant: 'neutral', pulse: false },
   completed: { emoji: '✅', icon: 'check-circle', variant: 'success', pulse: false },
   limits_exceeded: {
     emoji: '🚫',

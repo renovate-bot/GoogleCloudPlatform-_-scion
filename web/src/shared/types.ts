@@ -186,6 +186,7 @@ export type AgentActivity =
   | 'thinking'
   | 'executing'
   | 'waiting_for_input'
+  | 'blocked'
   | 'completed'
   | 'limits_exceeded'
   | 'stalled'

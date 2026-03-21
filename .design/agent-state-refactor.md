@@ -50,7 +50,7 @@ Replace the flat `status` string with a structured, layered model that separates
 │     stopped → error                                                 │
 │                                                                     │
 │  2. ACTIVITY (runtime)    What is the running agent doing?          │
-│     idle | thinking | executing | waiting_for_input |               │
+│     idle | thinking | executing | waiting_for_input | blocked |     │
 │     completed | limits_exceeded | stalled | offline                 │
 │     (only meaningful when phase = running)                          │
 │                                                                     │
@@ -157,6 +157,10 @@ The **activity** represents what the agent is doing while it's running. This is 
         │limits_exceeded │──── prompt-submit / session-start ──► thinking
         └────────────────┘         (sticky)
 
+        ┌─────────┐
+        │blocked  │──── prompt-submit / session-start / message ──► thinking
+        └─────────┘         (sticky — agent-set, prevents false stalled)
+
         ┌────────┐
         │stalled │  (set by platform when heartbeat present but no activity events)
         └────────┘
@@ -166,15 +170,16 @@ The **activity** represents what the agent is doing while it's running. This is 
         └─────────┘
 ```
 
-**Values**: `idle`, `thinking`, `executing`, `waiting_for_input`, `completed`, `limits_exceeded`, `stalled`, `offline`
+**Values**: `idle`, `thinking`, `executing`, `waiting_for_input`, `blocked`, `completed`, `limits_exceeded`, `stalled`, `offline`
 
 
 **Rules**:
 - Activity is only set/meaningful when `phase = running`
 - When phase transitions away from `running`, activity is cleared (set to empty)
 - When phase transitions to `running`, activity defaults to `idle`
-- **Sticky activities** (`waiting_for_input`, `completed`, `limits_exceeded`) resist being overwritten by `idle` or other transient states. They are only cleared by "new work" events (`prompt-submit`, `agent-start`, `session-start`)
-- **`stalled`** is set by the platform when the sciontool heartbeat is still being received but no activity events have arrived within a configurable timeout. The agent process is alive but appears hung. Cleared by any activity event from the agent.
+- **Sticky activities** (`waiting_for_input`, `blocked`, `completed`, `limits_exceeded`) resist being overwritten by `idle` or other transient states. They are only cleared by "new work" events (`prompt-submit`, `agent-start`, `session-start`)
+- **`blocked`** is set by the agent itself (via `sciontool status blocked`) when it is intentionally waiting for an expected event — typically a child agent completing its task, or a scheduled event. Unlike `stalled`, `blocked` is a proactive declaration by the agent. It prevents the platform from falsely marking the agent as `stalled`. It is **not** a notification trigger. Cleared by any new work event from the agent.
+- **`stalled`** is set by the platform when the sciontool heartbeat is still being received but no activity events have arrived within a configurable timeout. The agent process is alive but appears hung. Agents that have set `blocked` are excluded from stalled detection. Cleared by any activity event from the agent.
 - **`offline`** is set by the platform when neither activity events nor the sciontool heartbeat have been received. The agent may still be running on a disconnected broker, so it could be doing work — the platform is simply blind to its current activity. The UI should prominently display the existing `lastHeartbeat` timestamp alongside the `offline` badge so users can gauge how long connectivity has been lost. Cleared by any event or heartbeat from the agent.
 
 **Mapping from current implementation**:
@@ -250,6 +255,7 @@ const (
     ActivityThinking        Activity = "thinking"
     ActivityExecuting       Activity = "executing"
     ActivityWaitingForInput Activity = "waiting_for_input"
+    ActivityBlocked         Activity = "blocked"
     ActivityCompleted       Activity = "completed"
     ActivityLimitsExceeded  Activity = "limits_exceeded"
     ActivityStalled         Activity = "stalled"
@@ -260,7 +266,7 @@ const (
 // by normal event-driven updates.
 func (a Activity) IsSticky() bool {
     switch a {
-    case ActivityWaitingForInput, ActivityCompleted, ActivityLimitsExceeded:
+    case ActivityWaitingForInput, ActivityBlocked, ActivityCompleted, ActivityLimitsExceeded:
         return true
     }
     return false
@@ -346,6 +352,7 @@ export type AgentActivity =
   | 'thinking'
   | 'executing'
   | 'waiting_for_input'
+  | 'blocked'
   | 'completed'
   | 'limits_exceeded'
   | 'stalled'
@@ -447,7 +454,7 @@ The Hub handler no longer needs to collapse `thinking`/`executing` into `busy` �
 
 The notification system currently triggers on status values like `COMPLETED`, `WAITING_FOR_INPUT`, `LIMITS_EXCEEDED`. Under the new model:
 
-- **Trigger conditions** are expressed as activity values: `completed`, `waiting_for_input`, `limits_exceeded`, `stalled`, `offline`
+- **Trigger conditions** are expressed as activity values: `completed`, `waiting_for_input`, `limits_exceeded`, `stalled`, `offline` (note: `blocked` is intentionally **not** a notification trigger — it represents expected idle time, not an anomaly)
 - **Notification subscriptions** store `triggerActivities` (renamed from `triggerStatuses`)
 - The normalization issue (UPPERCASE vs lowercase) is resolved since everything uses lowercase activity values
 

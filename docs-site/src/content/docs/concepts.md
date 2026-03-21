@@ -61,11 +61,11 @@ Agent state uses a **layered model** with three dimensions:
   `created` → `provisioning` → `cloning` → `starting` → `running` → `stopping` → `stopped` (or `error`)
 
 - **Activity** — What the agent is doing within the `running` phase:
-  `idle`, `thinking`, `executing`, `waiting_for_input`, `completed`, `limits_exceeded`, `offline`
+  `idle`, `thinking`, `executing`, `waiting_for_input`, `blocked`, `completed`, `limits_exceeded`, `offline`
 
 - **Detail** — Freeform context about the current activity (tool name, message, task summary).
 
-This separation allows the UI and API consumers to distinguish between infrastructure lifecycle events (provisioning, stopping) and the agent's cognitive state (thinking, waiting for input). Activities like `completed` and `limits_exceeded` are "sticky" — they persist until the agent is explicitly restarted or stopped.
+This separation allows the UI and API consumers to distinguish between infrastructure lifecycle events (provisioning, stopping) and the agent's cognitive state (thinking, waiting for input). Activities like `completed`, `blocked`, and `limits_exceeded` are "sticky" — they persist until the agent is explicitly restarted or stopped. The `blocked` activity is set by agents themselves when they are intentionally waiting for an expected event (such as a child agent completing), which prevents the system from falsely marking them as stalled.
 
 The `offline` activity status occurs when an agent heartbeat has not been heard from for some time. Currently, this may be due to an agent being unable to refresh its auth token, which disconnects it from sending its heartbeat and other updates. These agents can be stopped and restarted to be provisioned with a new auth token. They should be able to refresh this token as long as they can maintain a connection to the Hub.
 

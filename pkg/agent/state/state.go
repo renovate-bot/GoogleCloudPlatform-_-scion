@@ -84,6 +84,7 @@ const (
 	ActivityThinking        Activity = "thinking"
 	ActivityExecuting       Activity = "executing"
 	ActivityWaitingForInput Activity = "waiting_for_input"
+	ActivityBlocked         Activity = "blocked"
 	ActivityCompleted       Activity = "completed"
 	ActivityLimitsExceeded  Activity = "limits_exceeded"
 	ActivityStalled         Activity = "stalled"
@@ -96,6 +97,7 @@ var allActivities = []Activity{
 	ActivityThinking,
 	ActivityExecuting,
 	ActivityWaitingForInput,
+	ActivityBlocked,
 	ActivityCompleted,
 	ActivityLimitsExceeded,
 	ActivityStalled,
@@ -139,7 +141,7 @@ func (a Activity) Validate() error {
 // (prompt-submit, agent-start, session-start).
 func (a Activity) IsSticky() bool {
 	switch a {
-	case ActivityWaitingForInput, ActivityCompleted, ActivityLimitsExceeded:
+	case ActivityWaitingForInput, ActivityBlocked, ActivityCompleted, ActivityLimitsExceeded:
 		return true
 	}
 	return false
