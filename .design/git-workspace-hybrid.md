@@ -510,13 +510,22 @@ The branch name field on the new-agent form adapts its default based on workspac
    - ✅ Sanitize credentials from remote URL and error messages.
 2. ✅ Git is invoked via `exec.Command` — requires git on Hub/broker hosts (prerequisite).
 
-### Phase 3: Agent Provisioning Integration
+### Phase 3: Agent Provisioning Integration ✅ Completed
 
-1. Update `ProvisionAgent()` to detect shared-workspace groves and skip worktree/clone.
-2. Mount shared workspace path for agents on shared-workspace groves.
-3. Configure per-agent credential helper in `$HOME/.gitconfig` with `GITHUB_TOKEN`.
-4. Update default branch name logic for new-agent form.
-5. Test concurrent agent access to shared workspace.
+1. ✅ Update `ProvisionAgent()` to detect shared-workspace groves and skip worktree/clone.
+   - ✅ `SharedWorkspace` flag threaded via context from hub → dispatcher → broker → provisioning.
+   - ✅ Hub dispatcher resolves `grove.IsSharedWorkspace()` and propagates to broker.
+   - ✅ Broker injects `SCION_SHARED_WORKSPACE` env var for sciontool.
+2. ✅ Mount shared workspace path for agents on shared-workspace groves.
+   - ✅ Hub sets workspace to hub-native grove path; broker passes through.
+   - ✅ ProvisionAgent takes explicit workspace path (skips worktree creation).
+3. ✅ Configure per-agent credential helper in `$HOME/.gitconfig` with `GITHUB_TOKEN`.
+   - ✅ ProvisionAgent writes credential helper to agent home `.gitconfig`.
+   - ✅ sciontool `configureSharedWorkspaceGit()` handles in-container setup with GitHub App support.
+4. ✅ Update default branch name logic for new-agent form.
+   - ✅ Shared-workspace agents default to grove's `scion.dev/default-branch` label (or "main").
+5. ✅ Test concurrent agent access to shared workspace.
+   - ✅ Documented as user responsibility (same as hub-native groves).
 
 ### Phase 4: Web UI
 
