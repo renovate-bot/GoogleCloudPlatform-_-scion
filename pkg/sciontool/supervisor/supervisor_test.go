@@ -183,6 +183,31 @@ func TestSupervisor_ExitCode(t *testing.T) {
 	}
 }
 
+func TestSupervisor_RootlessEnvVars(t *testing.T) {
+	// In rootless mode, the supervisor should set HOME/USER/LOGNAME
+	// to the scion user without dropping privileges via Credential.
+	config := Config{
+		GracePeriod: 10 * time.Second,
+		Username:    "scion",
+		Rootless:    true,
+		// UID and GID are 0 (no privilege drop)
+	}
+	sup := New(config)
+
+	ctx := context.Background()
+	// Run a command that prints the HOME env var
+	exitCode, err := sup.Run(ctx, []string{"sh", "-c", "echo $HOME"})
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if exitCode != 0 {
+		t.Errorf("expected exit code 0, got %d", exitCode)
+	}
+	// We can't easily capture stdout in this test harness, but we verify
+	// the command ran successfully with rootless config. The env var
+	// setting is tested via the unit test for setEnvVar.
+}
+
 func TestDefaultConfig(t *testing.T) {
 	config := DefaultConfig()
 

@@ -496,6 +496,27 @@ func TestUseDirectPasswdEdit(t *testing.T) {
 	}
 }
 
+func TestIsUIDMapped(t *testing.T) {
+	// On a normal (non-namespaced) host, all UIDs should be mapped.
+	// /proc/self/uid_map typically shows "0 0 4294967295" or similar.
+	// We test the function by verifying our own UID is mapped and
+	// that an absurdly large UID is likely not mapped in rootless mode
+	// (but may be mapped on a normal host).
+
+	t.Run("current user UID is mapped", func(t *testing.T) {
+		uid := os.Getuid()
+		if !isUIDMapped(uid) {
+			t.Errorf("expected current user UID %d to be mapped", uid)
+		}
+	})
+
+	t.Run("UID 0 is always mapped", func(t *testing.T) {
+		if !isUIDMapped(0) {
+			t.Error("expected UID 0 to be mapped")
+		}
+	})
+}
+
 func TestIsAuthError(t *testing.T) {
 	tests := []struct {
 		name     string

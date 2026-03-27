@@ -32,6 +32,12 @@ type Config struct {
 	GID int
 	// Username is the target username for the child process (used to set HOME, USER, LOGNAME)
 	Username string
+	// Rootless indicates the container is running in a rootless user namespace
+	// (e.g. rootless Podman). When true, the supervisor skips the credential
+	// drop (UID 0 inside the container IS the unprivileged host user) but
+	// still sets HOME/USER/LOGNAME to the Username so harnesses find their
+	// config in the right place.
+	Rootless bool
 }
 
 // DefaultConfig returns a Config with sensible defaults.
@@ -84,26 +90,29 @@ func (s *Supervisor) Run(ctx context.Context, args []string) (int, error) {
 		Setpgid: true,
 	}
 
-	// Drop privileges if UID/GID specified
+	// Drop privileges if UID/GID specified (skip in rootless mode where
+	// UID 0 inside the container is already the unprivileged host user).
 	if s.config.UID > 0 && s.config.GID > 0 {
 		s.cmd.SysProcAttr.Credential = &syscall.Credential{
 			Uid: uint32(s.config.UID),
 			Gid: uint32(s.config.GID),
 		}
 		log.Debug("Child will run as UID=%d, GID=%d", s.config.UID, s.config.GID)
+	}
 
-		// syscall.Credential changes UID/GID but does NOT update env vars.
-		// The child inherits root's HOME=/root, USER=root, etc.
-		// Override these so the child sees the correct user environment.
-		if s.config.Username != "" {
-			home := "/home/" + s.config.Username
-			env := os.Environ()
-			env = setEnvVar(env, "HOME", home)
-			env = setEnvVar(env, "USER", s.config.Username)
-			env = setEnvVar(env, "LOGNAME", s.config.Username)
-			s.cmd.Env = env
-			log.Debug("Child env: HOME=%s, USER=%s, LOGNAME=%s", home, s.config.Username, s.config.Username)
-		}
+	// Set the child's user environment when dropping privileges OR in
+	// rootless mode. In rootless containers, init runs as UID 0 (which
+	// maps to the unprivileged host user), so no Credential is needed,
+	// but HOME/USER/LOGNAME must still point to the scion user's home
+	// so harnesses find their configuration.
+	if s.config.Username != "" && (s.config.UID > 0 || s.config.Rootless) {
+		home := "/home/" + s.config.Username
+		env := os.Environ()
+		env = setEnvVar(env, "HOME", home)
+		env = setEnvVar(env, "USER", s.config.Username)
+		env = setEnvVar(env, "LOGNAME", s.config.Username)
+		s.cmd.Env = env
+		log.Debug("Child env: HOME=%s, USER=%s, LOGNAME=%s", home, s.config.Username, s.config.Username)
 	}
 
 	// Apply SCION_EXTRA_PATH: prepend its value to PATH, then remove it from env.

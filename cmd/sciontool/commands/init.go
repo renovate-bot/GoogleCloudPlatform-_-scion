@@ -112,7 +112,7 @@ func runInit(args []string) int {
 	}
 
 	// Set up scion user UID/GID to match host user
-	targetUID, targetGID := setupHostUser()
+	targetUID, targetGID, rootless := setupHostUser()
 
 	// Chown the log file so the scion user can write to it even if it was created by root
 	if targetUID != 0 {
@@ -149,12 +149,20 @@ func runInit(args []string) int {
 	// (HOME=/root), but agent-info.json and other agent state files live
 	// in the scion user's home directory. This must happen before the
 	// StatusHandler is created so it writes to the correct path.
+	// In rootless mode, targetUID is 0 but we still need the scion user's
+	// home directory since the child process environment will use it.
 	agentHome := os.Getenv("HOME")
 	if targetUID != 0 {
 		if scionUser, err := user.LookupId(strconv.Itoa(targetUID)); err == nil {
 			agentHome = scionUser.HomeDir
 		} else {
 			log.Debug("Could not look up user for UID %d: %v", targetUID, err)
+		}
+	} else if rootless {
+		if scionUser, err := user.Lookup("scion"); err == nil {
+			agentHome = scionUser.HomeDir
+		} else {
+			log.Debug("Could not look up scion user in rootless mode: %v", err)
 		}
 	}
 
@@ -313,6 +321,7 @@ func runInit(args []string) int {
 		UID:         targetUID,
 		GID:         targetGID,
 		Username:    "scion",
+		Rootless:    rootless,
 	}
 	sup := supervisor.New(config)
 
@@ -719,7 +728,10 @@ func extractChildCommand(args []string) []string {
 
 // setupHostUser modifies the scion user's UID/GID to match the host user.
 // This is only done when running as root and SCION_HOST_UID/GID are set.
-// Returns the target UID/GID for the child process (0 = no change).
+// Returns the target UID/GID for the child process (0 = no change) and a
+// rootless flag. When rootless is true, the container is running in a rootless
+// user namespace where UID 0 is the host user; the caller should set the
+// child's environment (HOME, USER) to the scion user but skip privilege drop.
 // watchLimitsTriggerFile polls for the limits-exceeded trigger file created by
 // hook handlers. This works across UID boundaries (hooks run as scion user,
 // init runs as root) where SIGUSR1 would fail with EPERM.
@@ -739,11 +751,11 @@ func watchLimitsTriggerFile(ctx context.Context, ch chan<- struct{}) {
 	}
 }
 
-func setupHostUser() (int, int) {
+func setupHostUser() (int, int, bool) {
 	// Only run if we're root and env vars are set
 	if os.Getuid() != 0 {
 		log.Debug("Not running as root, skipping user setup")
-		return 0, 0
+		return 0, 0, false
 	}
 
 	hostUID := os.Getenv("SCION_HOST_UID")
@@ -751,18 +763,29 @@ func setupHostUser() (int, int) {
 
 	if hostUID == "" || hostGID == "" {
 		log.Debug("SCION_HOST_UID/GID not set, skipping user setup")
-		return 0, 0 // Continue as root
+		return 0, 0, false // Continue as root
 	}
 
 	uid, err := strconv.Atoi(hostUID)
 	if err != nil {
 		log.Error("Invalid SCION_HOST_UID: %v", err)
-		return 0, 0
+		return 0, 0, false
 	}
 	gid, err := strconv.Atoi(hostGID)
 	if err != nil {
 		log.Error("Invalid SCION_HOST_GID: %v", err)
-		return 0, 0
+		return 0, 0, false
+	}
+
+	// Check if the target UID is mapped in the current user namespace.
+	// In rootless Podman, the host user's UID is mapped to container UID 0,
+	// and only a limited range of subordinate UIDs are available inside the
+	// container. If the target UID falls outside any mapped range, chown
+	// and credential-based exec would fail with EINVAL. In this case, skip
+	// remapping and run as container root (which IS the host user).
+	if !isUIDMapped(uid) {
+		log.Info("UID %d is not mapped in the container user namespace (rootless container); skipping user remapping", uid)
+		return 0, 0, true
 	}
 
 	// Skip if UID/GID already match (1001 is the default)
@@ -773,7 +796,7 @@ func setupHostUser() (int, int) {
 		log.Debug("Current scion user: UID=%d, GID=%d (Target: UID=%d, GID=%d)", currentUID, currentGID, uid, gid)
 		if currentUID == uid && currentGID == gid {
 			log.Debug("scion user already has correct UID/GID")
-			return uid, gid
+			return uid, gid, false
 		}
 	} else {
 		log.Error("scion user not found in system")
@@ -785,7 +808,7 @@ func setupHostUser() (int, int) {
 		log.Info("Using direct /etc/passwd edit (avoiding slow usermod on this runtime)")
 		if err := directSetUID("scion", hostUID, hostGID); err != nil {
 			log.Error("Direct passwd/group edit failed: %v", err)
-			return 0, 0
+			return 0, 0, false
 		}
 	} else {
 		// Modify group first (if different from current)
@@ -796,7 +819,7 @@ func setupHostUser() (int, int) {
 		// Modify user UID and primary group
 		if err := exec.Command("usermod", "-o", "-u", hostUID, "-g", hostGID, "scion").Run(); err != nil {
 			log.Error("Failed to modify scion user to UID %s, GID %s: %v", hostUID, hostGID, err)
-			return 0, 0
+			return 0, 0, false
 		}
 	}
 
@@ -807,7 +830,7 @@ func setupHostUser() (int, int) {
 		log.Error("Failed to verify scion user after adjustment: %v", err)
 	}
 
-	return uid, gid
+	return uid, gid, false
 }
 
 // useDirectPasswdEdit returns true when usermod should be avoided in favor of
@@ -876,6 +899,34 @@ func directSetUID(username, newUID, newGID string) error {
 func mustAtoi(s string) int {
 	n, _ := strconv.Atoi(s)
 	return n
+}
+
+// isUIDMapped checks whether uid is a valid container UID by reading
+// /proc/self/uid_map. In a non-namespaced process the map covers the full
+// 32-bit range so every UID is valid. In a rootless container only a small
+// subset of UIDs are mapped; using an unmapped UID in chown or
+// syscall.Credential causes EINVAL.
+func isUIDMapped(uid int) bool {
+	data, err := os.ReadFile("/proc/self/uid_map")
+	if err != nil {
+		// Cannot determine mapping; assume mapped (safe for rootful).
+		return true
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		insideStart, err1 := strconv.Atoi(fields[0])
+		count, err2 := strconv.Atoi(fields[2])
+		if err1 != nil || err2 != nil {
+			continue
+		}
+		if uid >= insideStart && uid < insideStart+count {
+			return true
+		}
+	}
+	return false
 }
 
 // gitCloneWorkspace clones a git repository into /workspace when SCION_GIT_CLONE_URL
