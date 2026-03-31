@@ -473,13 +473,13 @@ func TestSecret_UserScope_AdminAccess(t *testing.T) {
 		t.Fatalf("failed to decode response: %v", err)
 	}
 
-	// Admin users get an unscoped list (empty scopeId) so they can see all user secrets.
-	if resp.ScopeID != "" {
-		t.Errorf("expected empty scopeId for admin, got %q", resp.ScopeID)
+	// Admin users should only see their own secrets in the profile view.
+	if resp.ScopeID != DevUserID {
+		t.Errorf("expected scopeId %q for admin, got %q", DevUserID, resp.ScopeID)
 	}
 }
 
-func TestSecret_UserScope_AdminSeesOtherUserSecrets(t *testing.T) {
+func TestSecret_UserScope_AdminDoesNotSeeOtherUserSecrets(t *testing.T) {
 	srv, s := testServer(t)
 	srv.SetSecretBackend(secret.NewLocalBackend(s, "test-hub-id"))
 	ctx := context.Background()
@@ -502,7 +502,7 @@ func TestSecret_UserScope_AdminSeesOtherUserSecrets(t *testing.T) {
 		t.Fatalf("failed to set secret: %v", err)
 	}
 
-	// Admin (dev-user) should see the member's secret.
+	// Admin (dev-user) should NOT see the member's secret in their profile view.
 	rec := doRequest(t, srv, http.MethodGet, "/api/v1/secrets?scope=user", nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -513,15 +513,10 @@ func TestSecret_UserScope_AdminSeesOtherUserSecrets(t *testing.T) {
 		t.Fatalf("failed to decode response: %v", err)
 	}
 
-	found := false
 	for _, sec := range resp.Secrets {
 		if sec.Key == "MEMBER_KEY" {
-			found = true
-			break
+			t.Errorf("admin should NOT see other user's secret MEMBER_KEY in profile view, but it was in the list")
 		}
-	}
-	if !found {
-		t.Errorf("admin should see other user's secret MEMBER_KEY, but it was not in the list: %+v", resp.Secrets)
 	}
 }
 
