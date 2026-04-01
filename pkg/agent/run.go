@@ -516,6 +516,9 @@ func (m *AgentManager) Start(ctx context.Context, opts api.StartOptions) (*api.A
 	// can reach the host's loopback interface directly. This also rewrites any
 	// bridge hostnames back to localhost in opts.Env.
 	dockerNetworkMode := runtime.ResolveDockerNetworking(m.Runtime.Name(), opts.Env)
+	if dockerNetworkMode != "" {
+		opts.Env["SCION_NETWORK_MODE"] = dockerNetworkMode
+	}
 
 	// Persist harness auth override to scion-agent.json so sciontool inside the container sees it.
 	// The actual auth resolution override is applied earlier in the auth gathering block.
