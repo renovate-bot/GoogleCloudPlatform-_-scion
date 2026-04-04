@@ -210,62 +210,6 @@ func TestNormalizeTemplateSourceURL(t *testing.T) {
 	}
 }
 
-func TestConvertToSvnURL(t *testing.T) {
-	tests := []struct {
-		name     string
-		parts    *GitHubURLParts
-		expected string
-	}{
-		{
-			name: "main branch with path",
-			parts: &GitHubURLParts{
-				Owner:  "user",
-				Repo:   "repo",
-				Branch: "main",
-				Path:   "path/to/folder",
-			},
-			expected: "https://github.com/user/repo/trunk/path/to/folder",
-		},
-		{
-			name: "master branch with path",
-			parts: &GitHubURLParts{
-				Owner:  "user",
-				Repo:   "repo",
-				Branch: "master",
-				Path:   "templates",
-			},
-			expected: "https://github.com/user/repo/trunk/templates",
-		},
-		{
-			name: "feature branch with path",
-			parts: &GitHubURLParts{
-				Owner:  "user",
-				Repo:   "repo",
-				Branch: "feature/new-stuff",
-				Path:   "templates",
-			},
-			expected: "https://github.com/user/repo/branches/feature/new-stuff/templates",
-		},
-		{
-			name: "branch without path",
-			parts: &GitHubURLParts{
-				Owner:  "user",
-				Repo:   "repo",
-				Branch: "main",
-				Path:   "",
-			},
-			expected: "https://github.com/user/repo/trunk",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := convertToSvnURL(tt.parts)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
 func TestValidateRemoteURI(t *testing.T) {
 	tests := []struct {
 		name        string

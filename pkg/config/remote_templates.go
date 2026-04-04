@@ -204,28 +204,86 @@ func generateCacheKey(uri string) string {
 }
 
 // fetchGitHubFolder fetches a folder from a GitHub repository.
-// First attempts svn export, then falls back to sparse git checkout.
+// Uses the GitHub tarball API (plain HTTPS, no git binary required),
+// with a fallback to sparse git checkout.
 func fetchGitHubFolder(ctx context.Context, uri string, destPath string) error {
-	// Parse GitHub URL to extract parts
-	// Expected format: https://github.com/user/repo/tree/branch/path/to/folder
-	// or: https://github.com/user/repo/blob/branch/path (for files, but we need folders)
-
 	parsed, err := parseGitHubURL(uri)
 	if err != nil {
 		return err
 	}
 
-	// Try svn export first (cleaner, no .git files)
-	if hasSvn() {
-		svnURL := convertToSvnURL(parsed)
-		if err := svnExport(ctx, svnURL, destPath); err == nil {
-			return nil
-		}
-		// svn failed, fall through to git sparse checkout
+	// Try GitHub tarball download first (works without git installed)
+	if err := fetchGitHubTarball(ctx, parsed, destPath); err == nil {
+		return nil
 	}
 
 	// Fall back to sparse git checkout
 	return sparseGitCheckout(ctx, parsed, destPath)
+}
+
+// fetchGitHubTarball downloads the repo tarball from GitHub and extracts the
+// desired sub-path. This uses plain HTTPS and does not require git or svn.
+func fetchGitHubTarball(ctx context.Context, parts *GitHubURLParts, destPath string) error {
+	branch := parts.Branch
+	if branch == "" {
+		branch = "main"
+	}
+
+	tarballURL := fmt.Sprintf("https://github.com/%s/%s/archive/refs/heads/%s.tar.gz",
+		parts.Owner, parts.Repo, branch)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, tarballURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to download tarball: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("tarball download failed: HTTP %d", resp.StatusCode)
+	}
+
+	// Save to a temp file
+	tmpFile, err := os.CreateTemp("", "scion-gh-tarball-*.tar.gz")
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
+		tmpFile.Close()
+		return fmt.Errorf("failed to save tarball: %w", err)
+	}
+	tmpFile.Close()
+
+	// If no sub-path, extract directly to destPath
+	subPath := strings.TrimRight(parts.Path, "/")
+	if subPath == "" {
+		return extractTarGz(tmpPath, destPath)
+	}
+
+	// Extract to a temp directory, then copy the desired sub-path
+	tmpExtract, err := os.MkdirTemp("", "scion-gh-extract-*")
+	if err != nil {
+		return fmt.Errorf("failed to create temp directory: %w", err)
+	}
+	defer os.RemoveAll(tmpExtract)
+
+	if err := extractTarGz(tmpPath, tmpExtract); err != nil {
+		return err
+	}
+
+	srcPath := filepath.Join(tmpExtract, subPath)
+	if _, err := os.Stat(srcPath); os.IsNotExist(err) {
+		return fmt.Errorf("path %s not found in repository", subPath)
+	}
+
+	return copyDirExcludingGit(srcPath, destPath)
 }
 
 // GitHubURLParts contains parsed parts of a GitHub URL.
@@ -284,39 +342,6 @@ func parseGitHubURL(uri string) (*GitHubURLParts, error) {
 	return result, nil
 }
 
-// hasSvn checks if svn is available in PATH.
-func hasSvn() bool {
-	_, err := exec.LookPath("svn")
-	return err == nil
-}
-
-// convertToSvnURL converts a GitHub URL to an svn-compatible URL.
-func convertToSvnURL(parts *GitHubURLParts) string {
-	// SVN uses trunk for main/master, branches/X for other branches
-	var svnPath string
-	if parts.Branch == "main" || parts.Branch == "master" {
-		svnPath = "trunk"
-	} else {
-		svnPath = "branches/" + parts.Branch
-	}
-
-	if parts.Path != "" {
-		svnPath = svnPath + "/" + parts.Path
-	}
-
-	return fmt.Sprintf("https://github.com/%s/%s/%s", parts.Owner, parts.Repo, svnPath)
-}
-
-// svnExport exports a folder from GitHub using svn.
-func svnExport(ctx context.Context, svnURL string, destPath string) error {
-	// svn export downloads the folder contents directly into destPath
-	cmd := exec.CommandContext(ctx, "svn", "export", "--force", svnURL, destPath)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	return cmd.Run()
-}
-
 // sparseGitCheckout performs a sparse git checkout to get only the needed folder.
 func sparseGitCheckout(ctx context.Context, parts *GitHubURLParts, destPath string) error {
 	// Create a temporary directory for the git clone
@@ -359,15 +384,27 @@ func sparseGitCheckout(ctx context.Context, parts *GitHubURLParts, destPath stri
 	}
 
 	// Fetch and checkout the branch
+	var stderrBuf strings.Builder
 	fetchCmd := exec.CommandContext(ctx, "git", "fetch", "--depth=1", "origin", parts.Branch)
 	fetchCmd.Dir = tmpDir
+	fetchCmd.Stderr = &stderrBuf
 	if err := fetchCmd.Run(); err != nil {
+		detail := strings.TrimSpace(stderrBuf.String())
+		if detail != "" {
+			return fmt.Errorf("git fetch failed: %s", detail)
+		}
 		return fmt.Errorf("git fetch failed: %w", err)
 	}
 
+	stderrBuf.Reset()
 	checkoutCmd := exec.CommandContext(ctx, "git", "checkout", parts.Branch)
 	checkoutCmd.Dir = tmpDir
+	checkoutCmd.Stderr = &stderrBuf
 	if err := checkoutCmd.Run(); err != nil {
+		detail := strings.TrimSpace(stderrBuf.String())
+		if detail != "" {
+			return fmt.Errorf("git checkout failed: %s", detail)
+		}
 		return fmt.Errorf("git checkout failed: %w", err)
 	}
 
