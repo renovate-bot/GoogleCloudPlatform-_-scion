@@ -958,28 +958,44 @@ func GetAgent(ctx context.Context, agentName string, templateName string, agentI
 	agentHome := config.GetAgentHomePath(projectDir, agentName)
 	agentWorkspace := filepath.Join(agentDir, "workspace")
 
-	// If the managed workspace directory doesn't exist, try to recreate it.
-	// This handles the case where a worktree was removed (e.g. by git worktree
-	// prune, a previous incomplete deletion, or manual cleanup) but the agent
-	// config still exists.
-	if _, err := os.Stat(agentWorkspace); os.IsNotExist(err) {
-		if util.IsGitRepoDir(projectDir) {
-			// Recreate the worktree for git-backed workspaces.
-			targetBranch := branch
-			if targetBranch == "" {
-				targetBranch = api.Slugify(agentName)
-			}
+	// Check for stale/incomplete agent directory (dir exists but no config file).
+	// This can happen when a previous provisioning attempt created the directory
+	// but failed before writing scion-agent.json. Remove it so we re-provision.
+	if _, err := os.Stat(agentDir); err == nil {
+		if configPath := config.GetScionAgentConfigPath(agentDir); configPath == "" {
+			util.Debugf("GetAgent: agent dir exists but no config file found, removing stale directory")
+			os.RemoveAll(agentDir)
+			// Prune worktrees so git forgets any worktree that pointed into the
+			// now-deleted directory, allowing ProvisionAgent to recreate it cleanly.
 			if root, rootErr := util.RepoRootDir(filepath.Dir(agentWorkspace)); rootErr == nil {
 				_ = util.PruneWorktreesIn(root)
 			}
-			if err := util.CreateWorktree(agentWorkspace, targetBranch); err != nil {
-				util.Debugf("GetAgent: failed to recreate worktree at %s: %v, clearing workspace", agentWorkspace, err)
-				agentWorkspace = ""
+		}
+	}
+
+	// If the managed workspace directory doesn't exist, try to recreate it.
+	// Only do this for existing, fully-provisioned agents (config file present).
+	// For new agents or stale directories, ProvisionAgent handles worktree creation.
+	if config.GetScionAgentConfigPath(agentDir) != "" {
+		if _, err := os.Stat(agentWorkspace); os.IsNotExist(err) {
+			if util.IsGitRepoDir(projectDir) {
+				// Recreate the worktree for git-backed workspaces.
+				targetBranch := branch
+				if targetBranch == "" {
+					targetBranch = api.Slugify(agentName)
+				}
+				if root, rootErr := util.RepoRootDir(filepath.Dir(agentWorkspace)); rootErr == nil {
+					_ = util.PruneWorktreesIn(root)
+				}
+				if err := util.CreateWorktree(agentWorkspace, targetBranch); err != nil {
+					util.Debugf("GetAgent: failed to recreate worktree at %s: %v, clearing workspace", agentWorkspace, err)
+					agentWorkspace = ""
+				} else {
+					util.Debugf("GetAgent: recreated missing worktree at %s (branch %s)", agentWorkspace, targetBranch)
+				}
 			} else {
-				util.Debugf("GetAgent: recreated missing worktree at %s (branch %s)", agentWorkspace, targetBranch)
+				agentWorkspace = ""
 			}
-		} else {
-			agentWorkspace = ""
 		}
 	}
 
@@ -992,16 +1008,6 @@ func GetAgent(ctx context.Context, agentName string, templateName string, agentI
 	defaultTemplate := "default"
 	if vs != nil && vs.DefaultTemplate != "" {
 		defaultTemplate = vs.DefaultTemplate
-	}
-
-	// Check for stale/incomplete agent directory (dir exists but no config file).
-	// This can happen when a previous provisioning attempt created the directory
-	// but failed before writing scion-agent.json. Remove it so we re-provision.
-	if _, err := os.Stat(agentDir); err == nil {
-		if configPath := config.GetScionAgentConfigPath(agentDir); configPath == "" {
-			util.Debugf("GetAgent: agent dir exists but no config file found, removing stale directory")
-			os.RemoveAll(agentDir)
-		}
 	}
 
 	if _, err := os.Stat(agentDir); os.IsNotExist(err) {
