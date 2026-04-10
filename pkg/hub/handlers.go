@@ -4357,7 +4357,7 @@ func (s *Server) handleGroveAgentAction(w http.ResponseWriter, r *http.Request, 
 
 	// For interactive actions, enforce policy-based authorization (owner or admin only)
 	switch action {
-	case agentActionStart, agentActionStop, agentActionRestart, agentActionMessage:
+	case agentActionStart, agentActionStop, agentActionRestart, agentActionMessage, agentActionExec:
 		if userIdent := GetUserIdentityFromContext(ctx); userIdent != nil {
 			decision := s.authzService.CheckAccess(ctx, userIdent, agentResource(agent), ActionAttach)
 			if !decision.Allowed {
@@ -4375,6 +4375,8 @@ func (s *Server) handleGroveAgentAction(w http.ResponseWriter, r *http.Request, 
 		s.handleAgentLifecycle(w, r, agent.ID, action)
 	case agentActionMessage:
 		s.handleAgentMessage(w, r, agent.ID)
+	case agentActionExec:
+		s.handleAgentExec(w, r, agent.ID)
 	case agentActionEnv:
 		s.submitAgentEnv(w, r, groveID, agentID)
 	case agentActionRestore:
