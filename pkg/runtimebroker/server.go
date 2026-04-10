@@ -629,9 +629,19 @@ func (s *Server) validateBrokerAuthStartup() error {
 	hasKeys := s.authKeyCount() > 0
 	loopbackOnly := isLoopbackHost(s.config.Host)
 
-	// Hub-connected brokers must have usable HMAC keys for inbound request auth.
+	// Hub-connected brokers without keys are in a "pending registration" state.
+	// They must be allowed to start so that `scion broker register` can reach
+	// the local health endpoint and complete the HMAC key exchange.
+	// The credential watcher will pick up keys once registration finishes.
 	if s.config.HubEnabled && !hasKeys {
-		return fmt.Errorf("runtime broker hub mode requires HMAC auth keys, but none are available")
+		if !loopbackOnly {
+			return fmt.Errorf("runtime broker API bound to %q in hub mode requires HMAC auth keys; register first on loopback or provide credentials", s.config.Host)
+		}
+		slog.Warn("Runtime Broker starting in hub mode without HMAC keys — pending registration",
+			"host", s.config.Host,
+			"hint", "run 'scion broker register' to complete setup",
+		)
+		return nil
 	}
 
 	// Non-loopback listeners must not run without strict broker auth and keys.

@@ -862,7 +862,7 @@ func TestRuntimeBroker_DefaultAuth_DeniesUnauthenticatedRequests(t *testing.T) {
 	}
 }
 
-func TestValidateBrokerAuthStartup_HubModeWithoutKeysFails(t *testing.T) {
+func TestValidateBrokerAuthStartup_HubModeWithoutKeysLoopbackAllowed(t *testing.T) {
 	cfg := DefaultServerConfig()
 	cfg.Host = "127.0.0.1"
 	cfg.HubEnabled = true
@@ -870,8 +870,21 @@ func TestValidateBrokerAuthStartup_HubModeWithoutKeysFails(t *testing.T) {
 	cfg.InMemoryCredentials = nil
 
 	srv := New(cfg, &mockManager{}, &runtime.MockRuntime{})
+	if err := srv.validateBrokerAuthStartup(); err != nil {
+		t.Fatalf("loopback hub mode without keys should be allowed (pending registration), got: %v", err)
+	}
+}
+
+func TestValidateBrokerAuthStartup_HubModeWithoutKeysNonLoopbackFails(t *testing.T) {
+	cfg := DefaultServerConfig()
+	cfg.Host = "0.0.0.0"
+	cfg.HubEnabled = true
+	cfg.HubEndpoint = "http://localhost:9810"
+	cfg.InMemoryCredentials = nil
+
+	srv := New(cfg, &mockManager{}, &runtime.MockRuntime{})
 	if err := srv.validateBrokerAuthStartup(); err == nil {
-		t.Fatal("expected startup validation to fail when hub mode has no HMAC keys")
+		t.Fatal("non-loopback hub mode without keys should fail")
 	}
 }
 
