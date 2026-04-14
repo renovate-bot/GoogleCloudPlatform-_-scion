@@ -608,6 +608,8 @@ func (e *evaluateAgentIdentity) Type() string                  { return "agent" 
 func (e *evaluateAgentIdentity) GroveID() string               { return e.groveID }
 func (e *evaluateAgentIdentity) Scopes() []AgentTokenScope     { return nil }
 func (e *evaluateAgentIdentity) HasScope(AgentTokenScope) bool { return true }
+func (e *evaluateAgentIdentity) Ancestry() []string            { return nil }
+func (e *evaluateAgentIdentity) OriginUserID() string          { return "" }
 
 // populateResourceContext fills in owner/parent info from the store.
 func populateResourceContext(ctx context.Context, s *Server, resource *Resource, resourceType, resourceID string) {

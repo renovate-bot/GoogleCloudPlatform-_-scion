@@ -29,6 +29,18 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// isGitRepoFunc is a package-level variable for testing. Defaults to util.IsGitRepo.
+var isGitRepoFunc = util.IsGitRepo
+
+// OverrideIsGitRepo replaces the git-repo detection function used by InitProject.
+// It returns a restore function that must be called to reset the override.
+// This is intended for use in tests outside the config package.
+func OverrideIsGitRepo(fn func() bool) func() {
+	orig := isGitRepoFunc
+	isGitRepoFunc = fn
+	return func() { isGitRepoFunc = orig }
+}
+
 //go:embed all:embeds/*
 var EmbedsFS embed.FS
 
@@ -229,7 +241,7 @@ func InitProject(targetDir string, harnesses []api.Harness, opts ...InitProjectO
 		opt = opts[0]
 	}
 
-	isGit := util.IsGitRepo()
+	isGit := isGitRepoFunc()
 
 	var projectDir string
 	var err error

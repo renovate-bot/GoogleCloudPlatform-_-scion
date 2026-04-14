@@ -59,7 +59,8 @@ func newTestServerWithInMemoryCreds(creds *brokercredentials.BrokerCredentials) 
 	cfg.BrokerAuthEnabled = false
 
 	mgr := &mockManager{}
-	rt := &runtime.MockRuntime{}
+	// NameFunc returns "docker" so resolveManagerForOpts matches the settings-resolved runtime.
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 
 	return New(cfg, mgr, rt)
 }
@@ -123,7 +124,7 @@ func TestHubConnection_MultipleConnections(t *testing.T) {
 	cfg.InMemoryCredentials = localCreds
 
 	mgr := &mockManager{}
-	rt := &runtime.MockRuntime{}
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 	srv := New(cfg, mgr, rt)
 
 	// The multi-store was initialized but pointed to default dir.
@@ -678,7 +679,7 @@ func TestCredentialWatcher_AddConnection(t *testing.T) {
 	cfg.BrokerName = "test-host"
 
 	mgr := &mockManager{}
-	rt := &runtime.MockRuntime{}
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 	srv := New(cfg, mgr, rt)
 
 	// Manually set up multi-store and load initial connections
@@ -755,7 +756,7 @@ func TestCredentialWatcher_RemoveConnection(t *testing.T) {
 	cfg.BrokerID = "broker-1"
 
 	mgr := &mockManager{}
-	rt := &runtime.MockRuntime{}
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 	srv := New(cfg, mgr, rt)
 
 	srv.multiCredStore = brokercredentials.NewMultiStore(credDir)
@@ -805,7 +806,7 @@ func TestCredentialWatcher_RemoveConnection(t *testing.T) {
 func TestBuildAuthMiddleware_NoKeys(t *testing.T) {
 	cfg := DefaultServerConfig()
 	cfg.BrokerAuthEnabled = true
-	srv := New(cfg, &mockManager{}, &runtime.MockRuntime{})
+	srv := New(cfg, &mockManager{}, &runtime.MockRuntime{NameFunc: func() string { return "docker" }})
 
 	// With no connections and no keys, middleware should be nil
 	if srv.brokerAuthMiddleware != nil {
@@ -824,7 +825,7 @@ func TestBuildAuthMiddleware_WithKeys(t *testing.T) {
 	cfg.InMemoryCredentials = creds
 	cfg.BrokerAuthEnabled = true
 
-	srv := New(cfg, &mockManager{}, &runtime.MockRuntime{})
+	srv := New(cfg, &mockManager{}, &runtime.MockRuntime{NameFunc: func() string { return "docker" }})
 
 	if srv.brokerAuthMiddleware == nil {
 		t.Error("expected middleware to be created when keys available")
@@ -851,7 +852,7 @@ func TestRuntimeBroker_DefaultAuth_DeniesUnauthenticatedRequests(t *testing.T) {
 	cfg.HubEndpoint = "http://localhost:8080"
 	cfg.InMemoryCredentials = creds
 
-	srv := New(cfg, &mockManager{}, &runtime.MockRuntime{})
+	srv := New(cfg, &mockManager{}, &runtime.MockRuntime{NameFunc: func() string { return "docker" }})
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/info", nil)
 	w := httptest.NewRecorder()
@@ -869,7 +870,7 @@ func TestValidateBrokerAuthStartup_HubModeWithoutKeysLoopbackAllowed(t *testing.
 	cfg.HubEndpoint = "http://localhost:9810"
 	cfg.InMemoryCredentials = nil
 
-	srv := New(cfg, &mockManager{}, &runtime.MockRuntime{})
+	srv := New(cfg, &mockManager{}, &runtime.MockRuntime{NameFunc: func() string { return "docker" }})
 	if err := srv.validateBrokerAuthStartup(); err != nil {
 		t.Fatalf("loopback hub mode without keys should be allowed (pending registration), got: %v", err)
 	}
@@ -882,7 +883,7 @@ func TestValidateBrokerAuthStartup_HubModeWithoutKeysNonLoopbackFails(t *testing
 	cfg.HubEndpoint = "http://localhost:9810"
 	cfg.InMemoryCredentials = nil
 
-	srv := New(cfg, &mockManager{}, &runtime.MockRuntime{})
+	srv := New(cfg, &mockManager{}, &runtime.MockRuntime{NameFunc: func() string { return "docker" }})
 	if err := srv.validateBrokerAuthStartup(); err == nil {
 		t.Fatal("non-loopback hub mode without keys should fail")
 	}
@@ -900,7 +901,7 @@ func TestValidateBrokerAuthStartup_NonLoopbackPermissiveModeFails(t *testing.T) 
 	cfg.InMemoryCredentials = creds
 	cfg.BrokerAuthStrictMode = false
 
-	srv := New(cfg, &mockManager{}, &runtime.MockRuntime{})
+	srv := New(cfg, &mockManager{}, &runtime.MockRuntime{NameFunc: func() string { return "docker" }})
 	if err := srv.validateBrokerAuthStartup(); err == nil {
 		t.Fatal("expected startup validation to fail for non-loopback host without strict auth")
 	}
@@ -982,7 +983,7 @@ func TestColocated_RemoteConnection_GetsHeartbeat(t *testing.T) {
 	cfg.ControlChannelEnabled = false
 
 	mgr := &mockManager{}
-	rt := &runtime.MockRuntime{}
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 	srv := New(cfg, mgr, rt)
 
 	conn, err := srv.createHubConnection("hub-prod", remoteCreds)
@@ -1035,7 +1036,7 @@ func TestColocated_ComboMode_HeartbeatPerConnection(t *testing.T) {
 	cfg.ControlChannelEnabled = false
 
 	mgr := &mockManager{}
-	rt := &runtime.MockRuntime{}
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 	srv := New(cfg, mgr, rt)
 
 	// Add remote connection from multi-store
@@ -1120,7 +1121,7 @@ func TestColocated_CredentialWatcher_PreservesLocalConnection(t *testing.T) {
 	cfg.InMemoryCredentials = localCreds
 
 	mgr := &mockManager{}
-	rt := &runtime.MockRuntime{}
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 	srv := New(cfg, mgr, rt)
 
 	// Manually set up multi-store and add remote
@@ -1200,7 +1201,7 @@ func TestColocated_CredentialWatcher_AddRemoteAlongsideLocal(t *testing.T) {
 	cfg.InMemoryCredentials = localCreds
 
 	mgr := &mockManager{}
-	rt := &runtime.MockRuntime{}
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 	srv := New(cfg, mgr, rt)
 
 	srv.multiCredStore = brokercredentials.NewMultiStore(credDir)
@@ -1309,7 +1310,7 @@ func TestColocated_MultipleRemoteConnections(t *testing.T) {
 	cfg.InMemoryCredentials = localCreds
 
 	mgr := &mockManager{}
-	rt := &runtime.MockRuntime{}
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 	srv := New(cfg, mgr, rt)
 
 	srv.multiCredStore = brokercredentials.NewMultiStore(credDir)

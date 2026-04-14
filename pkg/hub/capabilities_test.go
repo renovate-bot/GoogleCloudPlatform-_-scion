@@ -194,7 +194,7 @@ func TestComputeScopeCapabilities(t *testing.T) {
 	admin := NewAuthenticatedUser("admin-scope-cap", "admin-scope@example.com", "Admin", "admin", "api")
 
 	caps := srv.authzService.ComputeScopeCapabilities(ctx, admin, "", "", "agent")
-	assert.Equal(t, []string{"create", "list"}, caps.Actions)
+	assert.Equal(t, []string{"create", "list", "stop_all"}, caps.Actions)
 }
 
 func TestComputeScopeCapabilities_NoPolicy(t *testing.T) {

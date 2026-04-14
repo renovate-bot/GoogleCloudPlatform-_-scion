@@ -281,12 +281,23 @@ func RemoveWorktree(path string, deleteBranch bool) (bool, error) {
 // PruneWorktrees prunes worktree information for worktrees that no longer exist.
 // It runs from the current working directory.
 func PruneWorktrees() error {
+	// Guard: skip pruning inside agent containers. SCION_HOST_UID is set by the
+	// runtime when launching containers. Pruning inside a container can destroy
+	// worktree metadata that appears stale from the container's mount layout but
+	// is actively used by sibling agents on the host.
+	if os.Getenv("SCION_HOST_UID") != "" {
+		return nil
+	}
 	cmd := exec.Command("git", "worktree", "prune")
 	return cmd.Run()
 }
 
 // PruneWorktreesIn prunes worktree information from the specified repository root.
 func PruneWorktreesIn(repoRoot string) error {
+	// Guard: skip pruning inside agent containers (see PruneWorktrees).
+	if os.Getenv("SCION_HOST_UID") != "" {
+		return nil
+	}
 	cmd := exec.Command("git", "-C", repoRoot, "worktree", "prune")
 	return cmd.Run()
 }

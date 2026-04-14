@@ -85,6 +85,13 @@ func mockRuntimeDetectionNone(t *testing.T) {
 	}
 }
 
+func mockIsGitRepo(t *testing.T, result bool) {
+	t.Helper()
+	orig := isGitRepoFunc
+	t.Cleanup(func() { isGitRepoFunc = orig })
+	isGitRepoFunc = func() bool { return result }
+}
+
 func TestDetectLocalRuntime_PodmanPreferred(t *testing.T) {
 	mockRuntimeDetectionMulti(t, map[string]bool{"podman": true, "docker": true})
 

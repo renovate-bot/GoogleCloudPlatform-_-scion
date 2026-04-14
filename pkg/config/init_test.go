@@ -312,6 +312,7 @@ func TestSeedAgnosticTemplate_ForceOverwrite(t *testing.T) {
 func TestInitProject_EmptyTemplatesDir(t *testing.T) {
 	tmpDir := t.TempDir()
 	mockRuntimeDetection(t, "docker")
+	mockIsGitRepo(t, true)
 
 	// Override HOME for global templates and external grove-config dirs
 	origHome := os.Getenv("HOME")
@@ -343,6 +344,7 @@ func TestInitProject_EmptyTemplatesDir(t *testing.T) {
 func TestInitProject_NoHarnessConfigs(t *testing.T) {
 	tmpDir := t.TempDir()
 	mockRuntimeDetection(t, "docker")
+	mockIsGitRepo(t, true)
 
 	origHome := os.Getenv("HOME")
 	os.Setenv("HOME", tmpDir)
@@ -585,6 +587,7 @@ func TestInitMachine_UsesDetectedRuntime(t *testing.T) {
 func TestInitProject_UsesDetectedRuntime(t *testing.T) {
 	tmpDir := t.TempDir()
 	mockRuntimeDetection(t, "podman")
+	mockIsGitRepo(t, true)
 
 	origHome := os.Getenv("HOME")
 	os.Setenv("HOME", tmpDir)

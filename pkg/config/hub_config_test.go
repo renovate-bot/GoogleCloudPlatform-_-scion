@@ -78,6 +78,7 @@ func TestLoadGlobalConfigDefaults(t *testing.T) {
 func TestLoadGlobalConfigFromFile(t *testing.T) {
 	// Create a temporary config file
 	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
 	configPath := filepath.Join(tmpDir, "server.yaml")
 
 	configContent := `
@@ -134,6 +135,7 @@ logFormat: json
 func TestLoadGlobalConfigFromDirectory(t *testing.T) {
 	// Create a temporary directory with config file
 	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
 	configPath := filepath.Join(tmpDir, "server.yaml")
 
 	configContent := `
@@ -368,6 +370,7 @@ func TestHubEndpointConfiguration(t *testing.T) {
 
 	t.Run("from config file", func(t *testing.T) {
 		tmpDir := t.TempDir()
+		t.Setenv("HOME", tmpDir)
 		configPath := filepath.Join(tmpDir, "server.yaml")
 
 		configContent := `
@@ -404,6 +407,7 @@ hub:
 
 	t.Run("env overrides config file", func(t *testing.T) {
 		tmpDir := t.TempDir()
+		t.Setenv("HOME", tmpDir)
 		configPath := filepath.Join(tmpDir, "server.yaml")
 
 		configContent := `
@@ -433,6 +437,7 @@ hub:
 func TestRuntimeBrokerHubEndpointConfiguration(t *testing.T) {
 	t.Run("from config file", func(t *testing.T) {
 		tmpDir := t.TempDir()
+		t.Setenv("HOME", tmpDir)
 		configPath := filepath.Join(tmpDir, "server.yaml")
 
 		configContent := `
@@ -477,6 +482,7 @@ func TestContainerHubEndpointConfiguration(t *testing.T) {
 
 	t.Run("from config file", func(t *testing.T) {
 		tmpDir := t.TempDir()
+		t.Setenv("HOME", tmpDir)
 		configPath := filepath.Join(tmpDir, "server.yaml")
 
 		configContent := `

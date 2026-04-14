@@ -34,7 +34,7 @@ func TestBuildStartContext_BasicFields(t *testing.T) {
 	cfg.StateDir = t.TempDir()
 
 	mgr := &envCapturingManager{}
-	rt := &runtime.MockRuntime{}
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 	srv := New(cfg, mgr, rt)
 
 	r := httptest.NewRequest("POST", "/api/v1/agents", nil)
@@ -85,7 +85,7 @@ func TestBuildStartContext_EnvMerging(t *testing.T) {
 	cfg := DefaultServerConfig()
 	cfg.StateDir = t.TempDir()
 	mgr := &envCapturingManager{}
-	rt := &runtime.MockRuntime{}
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 	srv := New(cfg, mgr, rt)
 
 	r := httptest.NewRequest("POST", "/api/v1/agents", nil)
@@ -120,7 +120,7 @@ func TestBuildStartContext_TelemetryOverride(t *testing.T) {
 	cfg := DefaultServerConfig()
 	cfg.StateDir = t.TempDir()
 	mgr := &envCapturingManager{}
-	rt := &runtime.MockRuntime{}
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 	srv := New(cfg, mgr, rt)
 
 	r := httptest.NewRequest("POST", "/api/v1/agents", nil)
@@ -144,7 +144,7 @@ func TestBuildStartContext_ResolvedSecrets(t *testing.T) {
 	cfg := DefaultServerConfig()
 	cfg.StateDir = t.TempDir()
 	mgr := &envCapturingManager{}
-	rt := &runtime.MockRuntime{}
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 	srv := New(cfg, mgr, rt)
 
 	secrets := []api.ResolvedSecret{
@@ -169,7 +169,7 @@ func TestBuildStartContext_ConfigFields(t *testing.T) {
 	cfg := DefaultServerConfig()
 	cfg.StateDir = t.TempDir()
 	mgr := &envCapturingManager{}
-	rt := &runtime.MockRuntime{}
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 	srv := New(cfg, mgr, rt)
 
 	r := httptest.NewRequest("POST", "/api/v1/agents", nil)
@@ -212,7 +212,7 @@ func TestBuildStartContext_GitClone(t *testing.T) {
 	cfg := DefaultServerConfig()
 	cfg.StateDir = t.TempDir()
 	mgr := &envCapturingManager{}
-	rt := &runtime.MockRuntime{}
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 	srv := New(cfg, mgr, rt)
 
 	r := httptest.NewRequest("POST", "/api/v1/agents", nil)
@@ -259,7 +259,7 @@ func TestBuildStartContext_NilHTTPRequest(t *testing.T) {
 	cfg := DefaultServerConfig()
 	cfg.StateDir = t.TempDir()
 	mgr := &envCapturingManager{}
-	rt := &runtime.MockRuntime{}
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 	srv := New(cfg, mgr, rt)
 
 	// Should not panic with nil HTTPRequest
@@ -278,7 +278,7 @@ func TestBuildStartContext_AttachMode(t *testing.T) {
 	cfg := DefaultServerConfig()
 	cfg.StateDir = t.TempDir()
 	mgr := &envCapturingManager{}
-	rt := &runtime.MockRuntime{}
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 	srv := New(cfg, mgr, rt)
 
 	sc, err := srv.buildStartContext(context.Background(), startContextInputs{
@@ -297,7 +297,7 @@ func TestBuildStartContext_HubNativeGroveWritesMarker(t *testing.T) {
 	cfg := DefaultServerConfig()
 	cfg.StateDir = t.TempDir()
 	mgr := &envCapturingManager{}
-	rt := &runtime.MockRuntime{}
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 	srv := New(cfg, mgr, rt)
 
 	// Simulate a hub-native grove: GroveSlug set, GrovePath pre-resolved
@@ -356,7 +356,7 @@ func TestBuildStartContext_HubNativeGroveSlugResolution(t *testing.T) {
 	cfg := DefaultServerConfig()
 	cfg.StateDir = t.TempDir()
 	mgr := &envCapturingManager{}
-	rt := &runtime.MockRuntime{}
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 	srv := New(cfg, mgr, rt)
 
 	// Simulate: GroveSlug set, GrovePath empty (buildStartContext resolves it),
@@ -387,7 +387,7 @@ func TestBuildStartContext_HubNativeGrovePreservesExistingGroveID(t *testing.T) 
 	cfg := DefaultServerConfig()
 	cfg.StateDir = t.TempDir()
 	mgr := &envCapturingManager{}
-	rt := &runtime.MockRuntime{}
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 	srv := New(cfg, mgr, rt)
 
 	// Pre-create .scion as a directory with an existing grove-id (git grove)
@@ -425,7 +425,7 @@ func TestBuildStartContext_HubNativeGrovePreservesExistingMarker(t *testing.T) {
 	cfg := DefaultServerConfig()
 	cfg.StateDir = t.TempDir()
 	mgr := &envCapturingManager{}
-	rt := &runtime.MockRuntime{}
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 	srv := New(cfg, mgr, rt)
 
 	// Pre-create .scion as a marker file (hub-native grove)
@@ -468,7 +468,7 @@ func TestBuildStartContext_HubEndpoint(t *testing.T) {
 	cfg.HubEndpoint = "https://hub.example.com"
 	cfg.StateDir = t.TempDir()
 	mgr := &envCapturingManager{}
-	rt := &runtime.MockRuntime{}
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 	srv := New(cfg, mgr, rt)
 
 	// Without HTTPRequest, uses resolveHubEndpointForStart path
@@ -490,7 +490,7 @@ func TestBuildStartContext_GCPMetadataDefaultBlock(t *testing.T) {
 	cfg := DefaultServerConfig()
 	cfg.StateDir = t.TempDir()
 	mgr := &envCapturingManager{}
-	rt := &runtime.MockRuntime{}
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 	srv := New(cfg, mgr, rt)
 
 	r := httptest.NewRequest("POST", "/api/v1/agents", nil)
@@ -526,7 +526,7 @@ func TestBuildStartContext_GCPMetadataPassthrough(t *testing.T) {
 	cfg := DefaultServerConfig()
 	cfg.StateDir = t.TempDir()
 	mgr := &envCapturingManager{}
-	rt := &runtime.MockRuntime{}
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 	srv := New(cfg, mgr, rt)
 
 	r := httptest.NewRequest("POST", "/api/v1/agents", nil)
@@ -560,7 +560,7 @@ func TestBuildStartContext_GCPMetadataExplicitBlock(t *testing.T) {
 	cfg := DefaultServerConfig()
 	cfg.StateDir = t.TempDir()
 	mgr := &envCapturingManager{}
-	rt := &runtime.MockRuntime{}
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 	srv := New(cfg, mgr, rt)
 
 	r := httptest.NewRequest("POST", "/api/v1/agents", nil)
@@ -597,7 +597,7 @@ func TestBuildStartContext_GCPMetadataFromResolvedEnv(t *testing.T) {
 	cfg := DefaultServerConfig()
 	cfg.StateDir = t.TempDir()
 	mgr := &envCapturingManager{}
-	rt := &runtime.MockRuntime{}
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 	srv := New(cfg, mgr, rt)
 
 	r := httptest.NewRequest("POST", "/api/v1/agents", nil)
@@ -634,7 +634,7 @@ func TestBuildStartContext_GCPMetadataPassthroughFromResolvedEnv(t *testing.T) {
 	cfg := DefaultServerConfig()
 	cfg.StateDir = t.TempDir()
 	mgr := &envCapturingManager{}
-	rt := &runtime.MockRuntime{}
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 	srv := New(cfg, mgr, rt)
 
 	r := httptest.NewRequest("POST", "/api/v1/agents", nil)

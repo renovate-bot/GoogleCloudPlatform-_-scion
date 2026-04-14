@@ -116,8 +116,8 @@ func newTestServer() *Server {
 		},
 	}
 
-	// Use mock runtime
-	rt := &runtime.MockRuntime{}
+	// NameFunc returns "docker" so resolveManagerForOpts matches the settings-resolved runtime.
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 
 	return New(cfg, mgr, rt)
 }
@@ -545,8 +545,8 @@ func newTestServerWithEnvCapture() (*Server, *envCapturingManager) {
 
 	mgr := &envCapturingManager{}
 
-	// Use mock runtime
-	rt := &runtime.MockRuntime{}
+	// NameFunc returns "docker" so resolveManagerForOpts matches the settings-resolved runtime.
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 
 	return New(cfg, mgr, rt), mgr
 }
@@ -772,7 +772,8 @@ func newTestServerWithProvisionCapture() (*Server, *provisionCapturingManager) {
 	cfg.BrokerName = "test-host"
 
 	mgr := &provisionCapturingManager{}
-	rt := &runtime.MockRuntime{}
+	// NameFunc returns "docker" so resolveManagerForOpts matches the settings-resolved runtime.
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 
 	return New(cfg, mgr, rt), mgr
 }
@@ -1300,7 +1301,7 @@ func TestCreateAgentHubNativeGroveSettingsEndpoint(t *testing.T) {
 	cfg.Debug = true
 
 	mgr := &envCapturingManager{}
-	rt := &runtime.MockRuntime{}
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 	srv := New(cfg, mgr, rt)
 
 	// Set up a hub-native grove directory at the expected path.
@@ -1409,7 +1410,7 @@ func TestCreateAgentContainerHubEndpointOverride(t *testing.T) {
 		cfg.ContainerHubEndpoint = "http://host.containers.internal:8080"
 
 		mgr := &envCapturingManager{}
-		rt := &runtime.MockRuntime{}
+		rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 		srv := New(cfg, mgr, rt)
 
 		body := `{
@@ -1447,7 +1448,7 @@ func TestCreateAgentContainerHubEndpointOverride(t *testing.T) {
 		cfg.ContainerHubEndpoint = "http://host.containers.internal:8080"
 
 		mgr := &envCapturingManager{}
-		rt := &runtime.MockRuntime{}
+		rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 		srv := New(cfg, mgr, rt)
 
 		// Create a grove directory with settings.yaml containing hub.endpoint
@@ -1516,7 +1517,7 @@ hub:
 		cfg.ContainerHubEndpoint = "http://host.containers.internal:8080"
 
 		mgr := &envCapturingManager{}
-		rt := &runtime.MockRuntime{}
+		rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 		srv := New(cfg, mgr, rt)
 
 		body := `{
@@ -1551,10 +1552,25 @@ hub:
 		}
 		srv := New(cfg, mgr, rt)
 
-		body := `{
+		// Create a grove dir with kubernetes settings so resolveManagerForOpts
+		// matches the "kubernetes" runtime without trying to create a real manager.
+		groveDir := filepath.Join(t.TempDir(), ".scion")
+		os.MkdirAll(groveDir, 0755)
+		k8sSettings := `schema_version: "1"
+profiles:
+  local:
+    runtime: kubernetes
+runtimes:
+  kubernetes:
+    type: kubernetes
+`
+		os.WriteFile(filepath.Join(groveDir, "settings.yaml"), []byte(k8sSettings), 0644)
+
+		body := fmt.Sprintf(`{
 			"name": "test-agent",
-			"hubEndpoint": "http://localhost:8080"
-		}`
+			"hubEndpoint": "http://localhost:8080",
+			"grovePath": %q
+		}`, groveDir)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/agents", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
@@ -1585,7 +1601,7 @@ func TestCreateAgentConnectionHubEndpoint(t *testing.T) {
 		cfg.ContainerHubEndpoint = "http://host.containers.internal:8080"
 
 		mgr := &envCapturingManager{}
-		rt := &runtime.MockRuntime{}
+		rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 		srv := New(cfg, mgr, rt)
 
 		// Register a remote hub connection (as would happen via control channel)
@@ -1623,7 +1639,7 @@ func TestCreateAgentConnectionHubEndpoint(t *testing.T) {
 		cfg.BrokerName = "test-host"
 
 		mgr := &envCapturingManager{}
-		rt := &runtime.MockRuntime{}
+		rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 		srv := New(cfg, mgr, rt)
 
 		srv.hubMu.Lock()
@@ -1680,7 +1696,8 @@ func newTestServerWithGitCloneCapture() (*Server, *gitCloneCapturingManager) {
 	cfg.Debug = true
 
 	mgr := &gitCloneCapturingManager{}
-	rt := &runtime.MockRuntime{}
+	// NameFunc returns "docker" so resolveManagerForOpts matches the settings-resolved runtime.
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 
 	return New(cfg, mgr, rt), mgr
 }
@@ -1896,8 +1913,8 @@ func TestResolveManagerForOpts_ProfileWithDifferentRuntime(t *testing.T) {
 	}
 
 	// Write settings.yaml with a profile that specifies runtime "container"
-	// (which differs from the mock runtime's "mock" name)
-	settingsYAML := `version: 1
+	// (which differs from the broker's "docker" runtime)
+	settingsYAML := `schema_version: "1"
 profiles:
   apple:
     runtime: container
@@ -1926,21 +1943,21 @@ runtimes:
 }
 
 func TestResolveManagerForOpts_ProfileWithSameRuntime(t *testing.T) {
-	// Create a temp grove directory with settings that specify the same runtime as the mock
+	// Create a temp grove directory with settings that specify the same runtime as the broker
 	tmpDir := t.TempDir()
 	grovePath := filepath.Join(tmpDir, ".scion")
 	if err := os.MkdirAll(grovePath, 0755); err != nil {
 		t.Fatal(err)
 	}
 
-	// Write settings with profile whose runtime matches the mock runtime ("mock")
-	settingsYAML := `version: 1
+	// Write settings with profile whose runtime matches the broker's runtime ("docker")
+	settingsYAML := `schema_version: "1"
 profiles:
-  default:
-    runtime: mock
+  local:
+    runtime: docker
 runtimes:
-  mock:
-    type: mock
+  docker:
+    type: docker
 `
 	if err := os.WriteFile(filepath.Join(grovePath, "settings.yaml"), []byte(settingsYAML), 0644); err != nil {
 		t.Fatal(err)
@@ -1950,12 +1967,12 @@ runtimes:
 
 	opts := api.StartOptions{
 		Name:      "test-agent",
-		Profile:   "default",
+		Profile:   "local",
 		GrovePath: grovePath,
 	}
 	mgr := srv.resolveManagerForOpts(opts)
 
-	// Profile specifies "mock" runtime which matches the broker's runtime,
+	// Profile specifies "docker" runtime which matches the broker's runtime,
 	// so we should get the same manager
 	if mgr != srv.manager {
 		t.Error("expected default manager when profile resolves to same runtime")
@@ -2152,7 +2169,7 @@ func TestStartAgentGroveSettingsFallbackHubEndpoint(t *testing.T) {
 		cfg.Debug = true
 
 		mgr := &provisionCapturingManager{}
-		rt := &runtime.MockRuntime{}
+		rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 		srv := New(cfg, mgr, rt)
 
 		// Linked grove: grovePath ends in .scion, settings.yaml is directly there
@@ -2197,7 +2214,7 @@ func TestStartAgentGroveSettingsFallbackHubEndpoint(t *testing.T) {
 		cfg.Debug = true
 
 		mgr := &provisionCapturingManager{}
-		rt := &runtime.MockRuntime{}
+		rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 		srv := New(cfg, mgr, rt)
 
 		// Hub-native grove: grovePath is the workspace parent (~/.scion/groves/<slug>),
@@ -2247,7 +2264,7 @@ func TestStartAgentBrokerConfigUsedWhenNoGroveSettings(t *testing.T) {
 	cfg.Debug = true
 
 	mgr := &provisionCapturingManager{}
-	rt := &runtime.MockRuntime{}
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 	srv := New(cfg, mgr, rt)
 
 	// Create a temp grove dir with settings.yaml but no hub endpoint
@@ -2289,7 +2306,7 @@ func TestStartAgentResolvedEnvHubEndpointFallback(t *testing.T) {
 	cfg.Debug = true
 
 	mgr := &provisionCapturingManager{}
-	rt := &runtime.MockRuntime{}
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 	srv := New(cfg, mgr, rt)
 
 	body := `{"resolvedEnv": {"SCION_HUB_ENDPOINT": "http://hub.example.com:8080", "SCION_GROVE_ID": "grove-1"}}`
@@ -2324,7 +2341,7 @@ func TestStartAgentResolvedEnvHubURLFallback(t *testing.T) {
 	cfg.Debug = true
 
 	mgr := &provisionCapturingManager{}
-	rt := &runtime.MockRuntime{}
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 	srv := New(cfg, mgr, rt)
 
 	body := `{"resolvedEnv": {"SCION_HUB_URL": "http://hub.example.com:9090"}}`
@@ -2362,7 +2379,7 @@ func TestStartAgentResolvedEnvHubEndpointWithContainerOverride(t *testing.T) {
 	cfg.Debug = true
 
 	mgr := &provisionCapturingManager{}
-	rt := &runtime.MockRuntime{}
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 	srv := New(cfg, mgr, rt)
 
 	// resolvedEnv has localhost endpoint from the hub
@@ -2401,7 +2418,7 @@ func TestCreateAgentPortPreservedAcrossBridge(t *testing.T) {
 	cfg.ContainerHubEndpoint = "http://host.containers.internal:9810"
 
 	mgr := &envCapturingManager{}
-	rt := &runtime.MockRuntime{}
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 	srv := New(cfg, mgr, rt)
 
 	body := `{
@@ -2571,6 +2588,9 @@ func TestCreateAgentGroveSlugInitializesScionDir(t *testing.T) {
 	)
 	defer restore()
 
+	restoreGit := config.OverrideIsGitRepo(func() bool { return true })
+	defer restoreGit()
+
 	// When GroveSlug is set and the broker has no .scion subdirectory for
 	// the hub-native grove, the handler should create it so that
 	// ResolveGrovePath resolves to groves/<slug>/.scion (not groves/<slug>).
@@ -2738,7 +2758,7 @@ func TestDeleteAgent_HubNativeGrove_NoContainer(t *testing.T) {
 	mgr := &mockManager{
 		agents: []api.AgentInfo{}, // No containers
 	}
-	rt := &runtime.MockRuntime{}
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 	srv := New(cfg, mgr, rt)
 
 	tmpHome := t.TempDir()
@@ -2829,7 +2849,7 @@ func TestCreateAgentStartFailure_CleansUpFiles(t *testing.T) {
 	cfg.BrokerName = "test-host"
 	mgr := &provisionCapturingManager{}
 	mgr.startErr = fmt.Errorf("auth resolution failed: gemini: auth type \"api-key\" selected but no API key found")
-	rt := &runtime.MockRuntime{}
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 	srv := New(cfg, mgr, rt)
 
 	body := fmt.Sprintf(`{

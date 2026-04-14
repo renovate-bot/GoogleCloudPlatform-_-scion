@@ -362,6 +362,21 @@ func TestCreateWorktree_RejectsInsideContainer(t *testing.T) {
 	}
 }
 
+func TestPruneWorktrees_SkipsInsideContainer(t *testing.T) {
+	// When SCION_HOST_UID is set (agent container), pruning should be a no-op
+	// to prevent destroying sibling worktree metadata that appears stale from
+	// the container's mount layout.
+	t.Setenv("SCION_HOST_UID", "1000")
+
+	// Both prune functions should return nil without running git at all.
+	if err := PruneWorktrees(); err != nil {
+		t.Errorf("PruneWorktrees should no-op inside container, got: %v", err)
+	}
+	if err := PruneWorktreesIn("/nonexistent/path"); err != nil {
+		t.Errorf("PruneWorktreesIn should no-op inside container, got: %v", err)
+	}
+}
+
 func TestIsGitURL(t *testing.T) {
 	tests := []struct {
 		input string

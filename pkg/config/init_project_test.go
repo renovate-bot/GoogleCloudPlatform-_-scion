@@ -364,6 +364,7 @@ func TestInitProject_CreatesEmptyTemplatesDir(t *testing.T) {
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)
 	mockRuntimeDetection(t, "docker")
+	mockIsGitRepo(t, true)
 
 	tempDir := t.TempDir()
 

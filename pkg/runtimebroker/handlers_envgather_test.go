@@ -73,7 +73,8 @@ func newTestServerWithGrovePath(t *testing.T, settingsYAML string) (*Server, *en
 	cfg.StateDir = t.TempDir()
 
 	mgr := &envCapturingManager{}
-	rt := &runtime.MockRuntime{}
+	// NameFunc returns "docker" so resolveManagerForOpts matches the settings-resolved runtime.
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 
 	return New(cfg, mgr, rt), mgr, groveDir
 }
@@ -403,7 +404,7 @@ profiles:
 	cfg.StateDir = stateDir
 
 	createMgr := &envCapturingManager{}
-	srv1 := New(cfg, createMgr, &runtime.MockRuntime{})
+	srv1 := New(cfg, createMgr, &runtime.MockRuntime{NameFunc: func() string { return "docker" }})
 
 	createBody := `{
 		"name": "test-agent-restart",
@@ -421,7 +422,7 @@ profiles:
 	}
 
 	finalizeMgr := &envCapturingManager{}
-	srv2 := New(cfg, finalizeMgr, &runtime.MockRuntime{})
+	srv2 := New(cfg, finalizeMgr, &runtime.MockRuntime{NameFunc: func() string { return "docker" }})
 
 	finalizeBody := `{"env": {"NEEDED_KEY": "gathered-value"}}`
 	finalizeReq := httptest.NewRequest(http.MethodPost, "/api/v1/agents/agent-uuid-restart/finalize-env", strings.NewReader(finalizeBody))
@@ -443,7 +444,7 @@ func TestCreateAgent_IdempotentByRequestID(t *testing.T) {
 	cfg.Debug = true
 	cfg.StateDir = t.TempDir()
 	mgr := &envCapturingManager{}
-	srv := New(cfg, mgr, &runtime.MockRuntime{})
+	srv := New(cfg, mgr, &runtime.MockRuntime{NameFunc: func() string { return "docker" }})
 
 	body := `{
 		"requestId": "req-idempotent-1",
@@ -504,7 +505,8 @@ func newTestServerWithHarnessConfig(t *testing.T, harnessConfigName, configYAML,
 	cfg.StateDir = t.TempDir()
 
 	mgr := &envCapturingManager{}
-	rt := &runtime.MockRuntime{}
+	// NameFunc returns "docker" so resolveManagerForOpts matches the settings-resolved runtime.
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 
 	return New(cfg, mgr, rt), mgr, groveDir
 }
@@ -1360,7 +1362,8 @@ profiles:
 	cfg.Debug = true
 
 	mgr := &envCapturingManager{}
-	rt := &runtime.MockRuntime{}
+	// NameFunc returns "docker" so resolveManagerForOpts matches the settings-resolved runtime.
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 
 	srv := New(cfg, mgr, rt)
 
@@ -1850,7 +1853,8 @@ profiles:
 	cfg.Debug = true
 	cfg.StateDir = t.TempDir()
 	mgr := &envCapturingManager{}
-	rt := &runtime.MockRuntime{}
+	// NameFunc returns "docker" so resolveManagerForOpts matches the settings-resolved runtime.
+	rt := &runtime.MockRuntime{NameFunc: func() string { return "docker" }}
 	srv := New(cfg, mgr, rt)
 
 	// Send create request with NO grovePath — simulates hub-only git grove
